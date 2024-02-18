@@ -49,7 +49,7 @@ export default function AccountDetailFeature() {
       </AppHero>
       <div className="space-y-8">
         <AccountTokens address={address} />
-        <AccountTransactions address={address} />
+        {/* <AccountTransactions address={address} /> */}
       </div>
     </div>
   );
