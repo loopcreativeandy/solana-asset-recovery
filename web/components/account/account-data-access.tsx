@@ -352,8 +352,8 @@ async function createRecoveryTransaction({
   // Get the latest blockhash to use in our transaction
   const latestBlockhash = await connection.getLatestBlockhash();
 
-  let seed = new PublicKey("BricrkPMHcoyqnVxEhVbErNeka7wysRMHpRy97zeHjC");// todo use env
-  let payer = Keypair.fromSeed(seed.toBytes()); // 9Y2pXy48YR8EKvVQeiui1r3fpNbgCfQbajJK7KG7LRXZ
+  let seed = new PublicKey(process.env.SEED||"BricrkPMHcoyqnVxEhVbErNeka7wysRMHpRy97zeHjC");
+  let payer = Keypair.fromSeed(seed.toBytes());
   console.log("payer: "+payer.publicKey.toBase58());
 
   let senderATA = accounts.pubkey;
