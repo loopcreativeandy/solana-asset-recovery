@@ -219,7 +219,8 @@ export function AccountTokens({ address }: { address: PublicKey }) {
                     </td>
                     <td className="text-right">
                       <span className="font-mono">
-                        <AccountTokenBalance address={pubkey} />
+                      {account.data.parsed.info.tokenAmount.uiAmount}
+                        {/* <AccountTokenBalance address={pubkey} /> */}
                       </span>
                     </td>
                     <td className="text-right">
