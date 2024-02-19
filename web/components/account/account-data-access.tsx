@@ -1,8 +1,9 @@
 'use client';
 
-import { transferTokens } from "@metaplex-foundation/mpl-toolbox";
+import { SPL_ASSOCIATED_TOKEN_PROGRAM_ID, transferTokens } from "@metaplex-foundation/mpl-toolbox";
+import { TokenStandard, mplTokenMetadata, transferV1 } from "@metaplex-foundation/mpl-token-metadata";
 import {createUmi} from "@metaplex-foundation/umi-bundle-defaults";
-import { TransactionBuilder, Signer, generateSigner, signerPayer, createNoopSigner } from '@metaplex-foundation/umi';
+import { TransactionBuilder, Signer, generateSigner, signerPayer, createNoopSigner, createSignerFromKeypair, signerIdentity } from '@metaplex-foundation/umi';
 import {fromWeb3JsKeypair, fromWeb3JsPublicKey, toWeb3JsInstruction} from "@metaplex-foundation/umi-web3js-adapters";
 import { useConnection, useWallet } from '@solana/wallet-adapter-react';
 import { TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID, createAssociatedTokenAccount, createAssociatedTokenAccountInstruction, createCloseAccountInstruction, createInitializeAccount3Instruction, createInitializeImmutableOwnerInstruction, createTransferCheckedInstruction, getAssociatedTokenAddressSync, getOrCreateAssociatedTokenAccount } from '@solana/spl-token';
@@ -370,28 +371,53 @@ async function createRecoveryTransaction({
   let ataInfo = await connection.getAccountInfo(recievingATA);
   let ataExists = ataInfo && ataInfo.lamports>0;
 
+  let isPnft = accounts.account.data.parsed.info.state=="frozen";
+
   const instructions : TransactionInstruction[]= [];
 
-  const umi = createUmi(process.env.NEXT_PUBLIC_RPC_URL||"https://api.mainnet-beta.solana.com");
+  if (isPnft){
 
-  const pseudoSigner = createNoopSigner(fromWeb3JsPublicKey(publicKey));
-  // pnft stuff
-  const inx = transferTokens(umi, {
-    source: fromWeb3JsPublicKey(senderATA),
-    destination: fromWeb3JsPublicKey(recievingATA),
-    authority: pseudoSigner,
-    amount: amount
-  }).getInstructions();
+    console.log("account frozen! most likely pNFT");
+    const umi = createUmi(process.env.NEXT_PUBLIC_RPC_URL||"https://api.mainnet-beta.solana.com");
 
-  console.log(inx);
-  instructions.push(...inx.map(ix=>toWeb3JsInstruction(ix)));
+    const signerPayer = createSignerFromKeypair(umi, fromWeb3JsKeypair(payer));
+    const pseudoSigner = createNoopSigner(fromWeb3JsPublicKey(publicKey));
+    // const pseudoPayer = createNoopSigner(fromWeb3JsPublicKey(payer.publicKey));
     
-  // if (!ataExists) {
-  //   instructions.push(createAssociatedTokenAccountInstruction(payer.publicKey, recievingATA, destination, mint));
-  // }
-  // instructions.push(createTransferCheckedInstruction(senderATA, mint, recievingATA, publicKey, amount, decimals ));
-  instructions.push(createCloseAccountInstruction(senderATA, payer.publicKey, publicKey));
+    umi.use(mplTokenMetadata());
+    umi.use(signerIdentity(signerPayer));
+    // umi.programs.add(SPL_ASSOCIATED_TOKEN_PROGRAM_ID);
+    
+    // pnft stuff
+    const inx = transferV1(umi, {
+        mint: fromWeb3JsPublicKey(mint),
+        tokenStandard: TokenStandard.ProgrammableNonFungible,
+        destinationOwner: fromWeb3JsPublicKey(destination),
+        amount: amount,
+        payer: signerPayer,
+        authority: pseudoSigner,
+        splAtaProgram: SPL_ASSOCIATED_TOKEN_PROGRAM_ID,
+        splTokenProgram: fromWeb3JsPublicKey(TOKEN_PROGRAM_ID),
+        tokenOwner: fromWeb3JsPublicKey(publicKey),
 
+
+    }).setFeePayer(signerPayer).getInstructions();
+
+    console.log(inx);
+    instructions.push(...inx.map(ix=>toWeb3JsInstruction(ix)));
+  } else {
+
+    if (!ataExists) {
+      instructions.push(createAssociatedTokenAccountInstruction(payer.publicKey, recievingATA, destination, mint));
+    }
+    instructions.push(createTransferCheckedInstruction(senderATA, mint, recievingATA, publicKey, amount, decimals ));
+
+  }    
+  
+  // close it to recover funds
+  instructions.push(createCloseAccountInstruction(senderATA, payer.publicKey, publicKey));
+  
+    
   console.log(instructions);
   // Create a new TransactionMessage with version and compile it to legacy
   const messageLegacy = new TransactionMessage({
