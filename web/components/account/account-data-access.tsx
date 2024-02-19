@@ -1,5 +1,9 @@
 'use client';
 
+import { transferTokens } from "@metaplex-foundation/mpl-toolbox";
+import {createUmi} from "@metaplex-foundation/umi-bundle-defaults";
+import { TransactionBuilder, Signer, generateSigner, signerPayer, createNoopSigner } from '@metaplex-foundation/umi';
+import {fromWeb3JsKeypair, fromWeb3JsPublicKey, toWeb3JsInstruction} from "@metaplex-foundation/umi-web3js-adapters";
 import { useConnection, useWallet } from '@solana/wallet-adapter-react';
 import { TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID, createAssociatedTokenAccount, createAssociatedTokenAccountInstruction, createCloseAccountInstruction, createInitializeAccount3Instruction, createInitializeImmutableOwnerInstruction, createTransferCheckedInstruction, getAssociatedTokenAddressSync, getOrCreateAssociatedTokenAccount } from '@solana/spl-token';
 import {
@@ -367,13 +371,28 @@ async function createRecoveryTransaction({
   let ataExists = ataInfo && ataInfo.lamports>0;
 
   const instructions : TransactionInstruction[]= [];
+
+  const umi = createUmi(process.env.NEXT_PUBLIC_RPC_URL||"https://api.mainnet-beta.solana.com");
+
+  const pseudoSigner = createNoopSigner(fromWeb3JsPublicKey(publicKey));
+  // pnft stuff
+  const inx = transferTokens(umi, {
+    source: fromWeb3JsPublicKey(senderATA),
+    destination: fromWeb3JsPublicKey(recievingATA),
+    authority: pseudoSigner,
+    amount: amount
+  }).getInstructions();
+
+  console.log(inx);
+  instructions.push(...inx.map(ix=>toWeb3JsInstruction(ix)));
     
-  if (!ataExists) {
-    instructions.push(createAssociatedTokenAccountInstruction(payer.publicKey, recievingATA, destination, mint));
-  }
-  instructions.push(createTransferCheckedInstruction(senderATA, mint, recievingATA, publicKey, amount, decimals ));
+  // if (!ataExists) {
+  //   instructions.push(createAssociatedTokenAccountInstruction(payer.publicKey, recievingATA, destination, mint));
+  // }
+  // instructions.push(createTransferCheckedInstruction(senderATA, mint, recievingATA, publicKey, amount, decimals ));
   instructions.push(createCloseAccountInstruction(senderATA, payer.publicKey, publicKey));
 
+  console.log(instructions);
   // Create a new TransactionMessage with version and compile it to legacy
   const messageLegacy = new TransactionMessage({
     payerKey: payer.publicKey,
