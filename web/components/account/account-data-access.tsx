@@ -399,7 +399,8 @@ async function createRecoveryTransaction({
         splAtaProgram: SPL_ASSOCIATED_TOKEN_PROGRAM_ID,
         splTokenProgram: fromWeb3JsPublicKey(TOKEN_PROGRAM_ID),
         tokenOwner: fromWeb3JsPublicKey(publicKey),
-
+        authorizationRules: fromWeb3JsPublicKey(new PublicKey("eBJLFYPxJmMGKuFwpDWkzxZeUrad92kZRC5BJLpzyT9")),
+        authorizationRulesProgram: fromWeb3JsPublicKey(new PublicKey("auth9SigNpDKz4sJJ1DfCTuZrZNSAgh9sFD3rboVmgg")),
 
     }).setFeePayer(signerPayer).getInstructions();
 
