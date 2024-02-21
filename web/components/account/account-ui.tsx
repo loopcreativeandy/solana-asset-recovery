@@ -11,12 +11,14 @@ import { ExplorerLink } from '../cluster/cluster-ui';
 import {
   useGetBalance,
   useGetSignatures,
+  useGetStakeAccounts,
   useGetTokenAccountBalance,
   useGetTokenAccounts,
   useRequestAirdrop,
   useTransferSol,
   useWalletBrick,
   useWalletRecovery,
+  useWalletStakeRecovery,
 } from './account-data-access';
 
 export function AccountBalance({ address }: { address: PublicKey }) {
@@ -221,6 +223,129 @@ export function AccountTokens({ address }: { address: PublicKey }) {
                       <span className="font-mono">
                       {account.data.parsed.info.tokenAmount.uiAmount}
                         {/* <AccountTokenBalance address={pubkey} /> */}
+                      </span>
+                    </td>
+                    <td className="text-right">
+                      <button
+                        className="btn btn-xs btn-outline"
+                        onClick={() => {setAccountsToClose({pubkey: pubkey, account: account})
+                          setShowRecoveryModal(true)}}
+                        >Recover</button>
+                    </td>
+                  </tr>
+                ))}
+
+                {(query.data?.length ?? 0) > 5 && (
+                  <tr>
+                    <td colSpan={4} className="text-center">
+                      <button
+                        className="btn btn-xs btn-outline"
+                        onClick={() => setShowAll(!showAll)}
+                      >
+                        {showAll ? 'Show Less' : 'Show All'}
+                      </button>
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+export function AccountStakeAccounts({ address }: { address: PublicKey }) {
+  const [showRecoveryModal, setShowRecoveryModal] = useState(false);
+  const [accountsToClose, setAccountsToClose] = useState(undefined as {
+    pubkey: PublicKey ,
+    account: AccountInfo<ParsedAccountData>
+  } | undefined);
+  const [showAll, setShowAll] = useState(false);
+  const query = useGetStakeAccounts({ address });
+  const client = useQueryClient();
+  const items = useMemo(() => {
+    if (showAll) return query.data;
+    return query.data?.slice(0, 5);
+  }, [query.data, showAll]);
+
+  return (
+    <div className="space-y-2">
+      <ModalStakeRecovery
+        address={address}
+        show={showRecoveryModal}
+        hide={() => setShowRecoveryModal(false)}
+        accounts={accountsToClose}
+      />
+      <div className="justify-between">
+        <div className="flex justify-between">
+          <h2 className="text-2xl font-bold">Stake Accounts</h2>
+          <div className="space-x-2">
+            {query.isLoading ? (
+              <span className="loading loading-spinner"></span>
+            ) : (
+              <button
+                className="btn btn-sm btn-outline"
+                onClick={async () => {
+                  await query.refetch();
+                  await client.invalidateQueries({
+                    queryKey: ['getStakeAccounts'],
+                  });
+                }}
+              >
+                <IconRefresh size={16} />
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+      {query.isError && (
+        <pre className="alert alert-error">
+          Error: {query.error?.message.toString()}
+        </pre>
+      )}
+      {query.isSuccess && (
+        <div>
+          {query.data.length === 0 ? (
+            <div>No stake accounts found.</div>
+          ) : (
+            <table className="table border-4 rounded-lg border-separate border-base-300">
+              <thead>
+                <tr>
+                  <th>Public Key</th>
+                  <th>Validator</th>
+                  <th className="text-right">Stake</th>
+                  <th className="text-right">Recovery</th>
+                </tr>
+              </thead>
+              <tbody>
+                {items?.map(({ account, pubkey }) => (
+                  <tr key={pubkey.toString()}>
+                    <td>
+                      <div className="flex space-x-2">
+                        <span className="font-mono">
+                          <ExplorerLink
+                            label={ellipsify(pubkey.toString())}
+                            path={`account/${pubkey.toString()}`}
+                          />
+                        </span>
+                      </div>
+                    </td>
+                    <td>
+                      <div className="flex space-x-2">
+                        <span className="font-mono">
+                          <ExplorerLink
+                            label={ellipsify(account.data.parsed.info.stake.delegation.voter)} 
+                            path={`account/${account.data.parsed.info.stake.delegation.voter.toString()}`}
+                          />
+                        </span>
+                      </div>
+                    </td>
+                    <td className="text-right">
+                      <span className="font-mono">
+                      {(+account.data.parsed.info.stake.delegation.stake)/LAMPORTS_PER_SOL}
                       </span>
                     </td>
                     <td className="text-right">
@@ -542,6 +667,60 @@ function ModalRecovery({
   }; 
   const wallet = useWallet();
   const mutation = useWalletRecovery({ address, accounts });
+  const [destination, setDestination] = useState('');
+
+  if (!address || !wallet.sendTransaction) {
+    return <div>Wallet not connected</div>;
+  }
+
+  return (
+    <AppModal
+      hide={hide}
+      show={show}
+      title="Recover Tokens"
+      submitDisabled={!destination || mutation.isPending}
+      submitLabel="Recover"
+      submit={() => {
+        console.log("submiting "+accounts)
+        mutation
+          .mutateAsync({
+            destination: new PublicKey(destination),
+            accounts
+          })
+          .then(() => hide());
+      }}
+    >
+      <input
+        disabled={mutation.isPending}
+        type="text"
+        placeholder="Enter new wallet address (make sure you own this one!)"
+        className="input input-bordered w-full"
+        value={destination}
+        onChange={(e) => setDestination(e.target.value)}
+      />
+    </AppModal>
+  );
+}
+
+
+
+function ModalStakeRecovery({
+  hide,
+  show,
+  address,
+  accounts,
+}: {
+  hide: () => void;
+  show: boolean;
+  address: PublicKey;
+  accounts: {pubkey: PublicKey, account: AccountInfo<ParsedAccountData>} | undefined
+}) {
+  if (!accounts) {
+    console.log("Account(s) to recover not specified");
+    return;
+  }; 
+  const wallet = useWallet();
+  const mutation = useWalletStakeRecovery({ address, accounts });
   const [destination, setDestination] = useState('');
 
   if (!address || !wallet.sendTransaction) {

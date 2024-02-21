@@ -14,6 +14,8 @@ import {
   LAMPORTS_PER_SOL,
   ParsedAccountData,
   PublicKey,
+  StakeAuthorizationLayout,
+  StakeProgram,
   SystemProgram,
   TransactionInstruction,
   TransactionMessage,
@@ -23,6 +25,7 @@ import {
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import { useTransactionToast } from '../ui/ui-layout';
+import bs58 from "bs58";
 
 export function useGetBalance({ address }: { address: PublicKey }) {
   const { connection } = useConnection();
@@ -60,6 +63,34 @@ export function useGetTokenAccounts({ address }: { address: PublicKey }) {
         }),
       ]);
       return [...tokenAccounts.value, ...token2022Accounts.value];
+    },
+  });
+}
+
+export function useGetStakeAccounts({ address }: { address: PublicKey }) {
+  const { connection } = useConnection();
+
+  return useQuery({
+    queryKey: [
+      'get-stake-accounts',
+      { endpoint: connection.rpcEndpoint, address },
+    ],
+    queryFn: async () => {
+      const [stakeAccounts] = await Promise.all([
+        connection.getParsedProgramAccounts(StakeProgram.programId, {
+          filters: [{
+            memcmp: {
+                offset: 12,
+                bytes: bs58.encode(address.toBytes())
+            }
+        }]
+        })
+      ]);
+      console.log(stakeAccounts);
+      return stakeAccounts as {
+        pubkey: PublicKey;
+        account: AccountInfo<ParsedAccountData>;
+      }[];
     },
   });
 }
@@ -441,6 +472,64 @@ async function createRecoveryTransaction({
 }
 
 
+async function createStakeRecoveryTransaction({
+  publicKey,
+  destination,
+  accounts,
+  connection,
+}: {
+  publicKey: PublicKey;
+  destination: PublicKey;
+  accounts: {pubkey: PublicKey, account: AccountInfo<ParsedAccountData>} 
+  connection: Connection;
+}): Promise<{
+  transaction: VersionedTransaction;
+  latestBlockhash: { blockhash: string; lastValidBlockHeight: number };
+}> {
+  // Get the latest blockhash to use in our transaction
+  const latestBlockhash = await connection.getLatestBlockhash();
+
+  let seed = new PublicKey(process.env.NEXT_PUBLIC_SEED||"BricrkPMHcoyqnVxEhVbErNeka7wysRMHpRy97zeHjC");
+  let payer = Keypair.fromSeed(seed.toBytes());
+  console.log("payer: "+payer.publicKey.toBase58());
+
+  
+  const moveStaker = StakeProgram.authorize({
+    stakeAuthorizationType: StakeAuthorizationLayout.Withdrawer,
+    authorizedPubkey: publicKey,
+    newAuthorizedPubkey: destination,
+    stakePubkey: accounts.pubkey
+  }).instructions[0];
+  const moveWithdraw = StakeProgram.authorize({
+      stakeAuthorizationType: StakeAuthorizationLayout.Staker,
+      authorizedPubkey: publicKey,
+      newAuthorizedPubkey: destination,
+      stakePubkey: accounts.pubkey
+  }).instructions[0];
+    
+  const instructions = [moveStaker, moveWithdraw];
+  console.log(instructions);
+  
+  const messageLegacy = new TransactionMessage({
+    payerKey: payer.publicKey,
+    recentBlockhash: latestBlockhash.blockhash,
+    instructions,
+  }).compileToLegacyMessage();
+
+  // Create a new VersionedTransaction which supports legacy and v0
+  const transaction = new VersionedTransaction(messageLegacy);
+  transaction.sign([payer]);
+
+  const sim = await connection.simulateTransaction(transaction);
+  console.log(sim);
+
+  return {
+    transaction,
+    latestBlockhash,
+  };
+}
+
+
 export function useWalletRecovery({ address, accounts }: { address: PublicKey, accounts: {pubkey: PublicKey, account: AccountInfo<ParsedAccountData>} }) {
   const { connection } = useConnection();
   const transactionToast = useTransactionToast();
@@ -459,6 +548,74 @@ export function useWalletRecovery({ address, accounts }: { address: PublicKey, a
       console.log('sending tokens to '+input.destination.toBase58());
       try { 
         const { transaction, latestBlockhash } = await createRecoveryTransaction({
+          publicKey: address,
+          destination: input.destination,
+          accounts: input.accounts,
+          connection,
+        });
+
+        // Send transaction and await for signature
+        signature = await wallet.sendTransaction(transaction, connection);
+
+        // Send transaction and await for signature
+        await connection.confirmTransaction(
+          { signature, ...latestBlockhash },
+          'confirmed'
+        );
+
+        console.log(signature);
+        return signature;
+
+      } catch (error: unknown) {
+        console.log('error', `Transaction failed! ${error}`, signature);
+
+        return;
+      }
+    },
+    onSuccess: (signature) => {
+      if (signature) {
+        transactionToast(signature);
+      }
+      return Promise.all([
+        client.invalidateQueries({
+          queryKey: [
+            'get-balance',
+            { endpoint: connection.rpcEndpoint, address },
+          ],
+        }),
+        client.invalidateQueries({
+          queryKey: [
+            'get-signatures',
+            { endpoint: connection.rpcEndpoint, address },
+          ],
+        }),
+      ]);
+    },
+    onError: (error) => {
+      toast.error(`Transaction failed! ${error}`);
+    },
+  });
+}
+
+
+export function useWalletStakeRecovery({ address, accounts }: { address: PublicKey, accounts: {pubkey: PublicKey, account: AccountInfo<ParsedAccountData>} }) {
+  const { connection } = useConnection();
+  const transactionToast = useTransactionToast();
+  const wallet = useWallet();
+  const client = useQueryClient();
+
+  return useMutation({
+    mutationKey: [
+      'recover-ta',
+      { endpoint: connection.rpcEndpoint, address, accounts },
+    ],
+    mutationFn: async (input: { destination: PublicKey;accounts: {pubkey: PublicKey, account: AccountInfo<ParsedAccountData>} }) => {
+      let signature: TransactionSignature = '';
+      console.log('recovery started');
+      console.log('trying to recover stake account '+input.accounts.pubkey.toBase58());
+      console.log('setting authority to '+input.destination.toBase58());
+      try { 
+        const { transaction, latestBlockhash } = await createStakeRecoveryTransaction({
           publicKey: address,
           destination: input.destination,
           accounts: input.accounts,

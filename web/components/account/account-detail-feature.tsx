@@ -10,6 +10,7 @@ import { AppHero, ellipsify } from '../ui/ui-layout';
 import {
   AccountBalance,
   AccountButtons,
+  AccountStakeAccounts,
   AccountTokens,
   AccountTransactions,
 } from './account-ui';
@@ -49,6 +50,7 @@ export default function AccountDetailFeature() {
       </AppHero>
       <div className="space-y-8">
         <AccountTokens address={address} />
+        <AccountStakeAccounts address={address} />
         {/* <AccountTransactions address={address} /> */}
       </div>
     </div>
