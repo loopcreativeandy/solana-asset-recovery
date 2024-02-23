@@ -37,11 +37,11 @@ export async function buildTransactionFromPayload(connection: Connection, payloa
     });
     decompiledMessage.payerKey = feepayer.publicKey;
     decompiledMessage.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
-    const newVersionedTx = new VersionedTransaction(decompiledMessage.compileToV0Message(atlAccounts));
+    const newVersionedTx = new VersionedTransaction(decompiledMessage.compileToV0Message(nonNullAtlAccounts));
 
     // partial sign
     newVersionedTx.sign([feepayer])
-    
+
     return newVersionedTx;
   } else {
     console.log("building legacy transaction")
