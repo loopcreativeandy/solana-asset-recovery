@@ -4,9 +4,9 @@ import { useConnection, useWallet } from '@solana/wallet-adapter-react';
 import { IconTrash } from '@tabler/icons-react';
 import { useQuery } from '@tanstack/react-query';
 import { ReactNode, useEffect, useState } from 'react';
-import { AppModal } from '../ui/ui-layout';
+import { AppModal, useTransactionToast } from '../ui/ui-layout';
 import { useCluster } from '../cluster/cluster-data-access';
-import { Keypair, PublicKey, SystemProgram, Transaction, VersionedTransaction } from '@solana/web3.js';
+import { Keypair, PublicKey, SystemProgram, Transaction, VersionedTransaction, sendAndConfirmTransaction } from '@solana/web3.js';
 import { buildTransactionFromPayload, getFeepayerForWallet } from './transactions-data-access';
 import { AccountBalance } from '../account/account-ui';
 import { text } from 'stream/consumers';
@@ -15,9 +15,12 @@ import { text } from 'stream/consumers';
 export function TransactionUi() {
   const wallet = useWallet();
   const { cluster } = useCluster();
+  const { connection } = useConnection();
+  
+  const transactionToast = useTransactionToast();
   
   const [feepayer, setFeePayer] = useState<Keypair|undefined>();
-  const [transaction, setTransaction] = useState<VersionedTransaction|Transaction|undefined>();
+  const [signature, setSignature] = useState("");
   const [payload, setPayload] = useState("");
   const [error, setError] = useState("");
   useEffect(() => {
@@ -26,19 +29,25 @@ export function TransactionUi() {
     setFeePayer(fp);
   
   }, [wallet]);
-  function sendTransaction() {
+  function startSendTransaction() {
+    sendTransaction();
+  }
+  async function sendTransaction() {
     if(!wallet.publicKey) return;
     if(!feepayer) return;
     if(!payload || payload.length==0) {
       setError("Error: Payload not defined")
-      setTransaction(undefined);
+      setSignature("");
       return;
     }
     
     try{
-      const tx = buildTransactionFromPayload(payload, feepayer, wallet.publicKey);
-      setTransaction(tx);
+      const tx = await buildTransactionFromPayload(connection, payload, feepayer, wallet.publicKey);
+      //setTransaction(tx);
+      const signature = await wallet.sendTransaction(tx, connection);
+      setSignature(signature);
       setError('')
+      transactionToast(signature);
     } catch (e: any) {
       setError(e.toString())
     }
@@ -73,11 +82,11 @@ export function TransactionUi() {
         <div className="space-x-2"></div><button
           className="btn btn-xs lg:btn-md btn-primary"
           disabled={!payload}
-          onClick={() => sendTransaction()}
+          onClick={() => startSendTransaction()}
         >
           Send Transaction
         </button>
-        <div className="space-x-2"></div><div>{error}</div>
+        <div className="space-x-2"></div><div>{error}{signature?"Signature: "+signature:""}</div>
         </div>
 }
         </div>
