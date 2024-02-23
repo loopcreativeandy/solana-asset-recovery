@@ -18,6 +18,7 @@ import toast, { Toaster } from 'react-hot-toast';
 const pages: { label: string; path: string }[] = [
   { label: 'Account', path: '/account' },
   { label: 'Clusters', path: '/clusters' },
+  { label: 'Transactions', path: '/transactions' },
 ];
 
 export function UiLayout({ children }: { children: ReactNode }) {
