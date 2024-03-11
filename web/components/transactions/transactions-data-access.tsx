@@ -1,10 +1,17 @@
 'use client';
 
+import { base64 } from '@metaplex-foundation/umi/serializers';
+import {
+  ACCOUNT_SIZE,
+  AccountLayout,
+  TOKEN_PROGRAM_ID,
+} from '@solana/spl-token';
 import {
   AddressLookupTableAccount,
   Connection,
   Keypair,
   PublicKey,
+  SimulatedTransactionResponse,
   SystemProgram,
   Transaction,
   TransactionInstruction,
@@ -72,11 +79,20 @@ export async function decodeTransactionFromPayload(
   }
 }
 
+export type SimulateResult = SimulatedTransactionResponse & {
+  addresses: {
+    pubkey: string;
+    owner: PublicKey;
+    before?: bigint | number;
+    after?: bigint | number;
+  }[];
+};
+
 export async function simulateTransaction(
   connection: Connection,
   decodedTransaction: DecodedTransaction,
   feepayer: Keypair
-) {
+): Promise<SimulateResult> {
   const { blockhash } = await connection.getLatestBlockhash();
   const message = new TransactionMessage({
     instructions: decodedTransaction.instructions,
@@ -88,12 +104,44 @@ export async function simulateTransaction(
     message.compileToV0Message(decodedTransaction.addressLookupTableAccounts)
   );
 
+  const addresses = tx.message.staticAccountKeys.map((a) => a.toBase58());
+
+  const before = await connection.getMultipleAccountsInfo(
+    tx.message.staticAccountKeys
+  );
   const { value: result } = await connection.simulateTransaction(tx, {
     replaceRecentBlockhash: true,
     sigVerify: false,
+    accounts: {
+      encoding: 'base64',
+      addresses,
+    },
   });
 
-  return result;
+  return {
+    ...result,
+    addresses: addresses.map((pubkey, ix) => {
+      const isTokenAccount =
+        before[ix]!.owner.toBase58() === TOKEN_PROGRAM_ID.toBase58() &&
+        before[ix]!.data.length === ACCOUNT_SIZE;
+      return {
+        pubkey,
+        owner: isTokenAccount
+          ? AccountLayout.decode(before[ix]!.data).owner
+          : before[ix]!.owner,
+        before:
+          isTokenAccount && before[ix]!.data
+            ? AccountLayout.decode(before[ix]!.data).amount
+            : before[ix]!.lamports,
+        after:
+          isTokenAccount && result.accounts?.[ix]?.data
+            ? AccountLayout.decode(
+                base64.serialize(result.accounts![ix]!.data[0])
+              ).amount
+            : result.accounts?.[ix]?.lamports,
+      };
+    }),
+  };
 }
 
 export async function buildTransactionFromPayload(

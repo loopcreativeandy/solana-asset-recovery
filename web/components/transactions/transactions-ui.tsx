@@ -1,23 +1,20 @@
 'use client';
 
 import { useConnection, useWallet } from '@solana/wallet-adapter-react';
-import {
-  AccountMeta,
-  Keypair,
-  PublicKey,
-  SimulatedTransactionResponse,
-} from '@solana/web3.js';
+import { AccountMeta, Keypair, PublicKey } from '@solana/web3.js';
 import { useEffect, useState } from 'react';
 import { AccountBalance } from '../account/account-ui';
 import { useCluster } from '../cluster/cluster-data-access';
 import { ellipsify, useTransactionToast } from '../ui/ui-layout';
 import {
   DecodedTransaction,
+  SimulateResult,
   buildTransactionFromPayload,
   decodeTransactionFromPayload,
   getFeepayerForWallet,
   simulateTransaction,
 } from './transactions-data-access';
+import { ExplorerLink } from '../cluster/cluster-ui';
 
 export function TransactionUi() {
   const wallet = useWallet();
@@ -31,9 +28,7 @@ export function TransactionUi() {
   const [payload, setPayload] = useState('');
   const [decoded, setDecoded] = useState<DecodedTransaction | undefined>();
   const [showDecoded, setShowDecoded] = useState(false);
-  const [preview, setPreview] = useState<
-    SimulatedTransactionResponse | undefined
-  >();
+  const [preview, setPreview] = useState<SimulateResult | undefined>();
   const [error, setError] = useState('');
   useEffect(() => {
     if (!wallet.publicKey) return;
@@ -144,57 +139,43 @@ export function TransactionUi() {
                       <div>Instruction #{ix}</div>
                       <div>Program: {i.programId.toBase58()}</div>
                       <div>
-                        Signers:{' '}
-                        {i.keys.map((s, sx) =>
-                          s.isSigner ? (
-                            <div key={sx}>
-                              <span>#{sx}:</span>
-                              <select
-                                className="border"
-                                value={s.pubkey.toBase58()}
-                                onChange={(e) =>
-                                  setDecoded({
-                                    ...decoded,
-                                    instructions: decoded.instructions.map(
-                                      (d, dx) =>
-                                        dx === ix
-                                          ? {
-                                              programId: d.programId,
-                                              data: d.data,
-                                              keys: d.keys.map((k, kx) =>
-                                                kx === sx
-                                                  ? ({
-                                                      pubkey: new PublicKey(
-                                                        e.target.value
-                                                      ),
-                                                      isSigner: k.isSigner,
-                                                      isWritable: k.isWritable,
-                                                    } as AccountMeta)
-                                                  : k
-                                              ),
-                                            }
-                                          : d
-                                    ),
-                                  })
-                                }
-                              >
-                                <option value={feepayer.publicKey.toBase58()}>
-                                  Fee payer (
-                                  {ellipsify(feepayer.publicKey.toBase58())})
-                                </option>
-                                <option value={s.pubkey.toBase58()}>
-                                  Original ({ellipsify(s.pubkey.toBase58())})
-                                </option>
-                                <option value={wallet.publicKey?.toBase58()}>
-                                  Bricked wallet ((
-                                  {ellipsify(wallet.publicKey?.toBase58())}))
-                                </option>
-                              </select>
-                            </div>
-                          ) : (
-                            <></>
-                          )
-                        )}
+                        Accounts:{' '}
+                        {i.keys.map((s, sx) => (
+                          <div key={sx} className="flex gap-1">
+                            <span>#{sx}:</span>
+                            <input
+                              className="border flex-1"
+                              value={s.pubkey.toBase58()}
+                              onChange={(e) =>
+                                setDecoded({
+                                  ...decoded,
+                                  instructions: decoded.instructions.map(
+                                    (d, dx) =>
+                                      dx === ix
+                                        ? {
+                                            programId: d.programId,
+                                            data: d.data,
+                                            keys: d.keys.map((k, kx) =>
+                                              kx === sx
+                                                ? ({
+                                                    pubkey: new PublicKey(
+                                                      e.target.value
+                                                    ),
+                                                    isSigner: k.isSigner,
+                                                    isWritable: k.isWritable,
+                                                  } as AccountMeta)
+                                                : k
+                                            ),
+                                          }
+                                        : d
+                                  ),
+                                })
+                              }
+                            />
+                            {s.isSigner && <span>Signer</span>}
+                            {s.isWritable && <span>Writable</span>}
+                          </div>
+                        ))}
                       </div>
                       <div className="text-wrap break-all max-w-40 max-h-20 overflow-auto">
                         Data: {new Uint8Array(i.data).toString()}
@@ -220,6 +201,28 @@ export function TransactionUi() {
                   readOnly
                   className="border"
                 />
+                {preview.accounts && (
+                  <div>
+                    <h5>Accounts changes:</h5>
+                    {preview.addresses.map((a) => (
+                      <div key={a.pubkey} className="flex gap-2">
+                        <ExplorerLink
+                          path={`account/${a.pubkey}`}
+                          label={ellipsify(a.pubkey)}
+                        />
+                        <span>
+                          owned by:{' '}
+                          <ExplorerLink
+                            path={`account/${a.owner.toBase58()}`}
+                            label={ellipsify(a.owner.toBase58())}
+                          />
+                        </span>
+                        <span>before: {Number(a.before || 0)}</span>
+                        <span>after: {Number(a.after || 0)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </>
             )}
 
