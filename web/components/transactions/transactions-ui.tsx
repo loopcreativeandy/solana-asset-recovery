@@ -213,8 +213,8 @@ export function TransactionUi() {
                         <span>
                           owned by:{' '}
                           <ExplorerLink
-                            path={`account/${a.owner.toBase58()}`}
-                            label={ellipsify(a.owner.toBase58())}
+                            path={`account/${a.owner?.toBase58()}`}
+                            label={ellipsify(a.owner?.toBase58())}
                           />
                         </span>
                         <span>before: {Number(a.before || 0)}</span>

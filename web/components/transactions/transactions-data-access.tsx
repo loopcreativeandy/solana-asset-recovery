@@ -82,7 +82,7 @@ export async function decodeTransactionFromPayload(
 export type SimulateResult = SimulatedTransactionResponse & {
   addresses: {
     pubkey: string;
-    owner: PublicKey;
+    owner?: PublicKey;
     before?: bigint | number;
     after?: bigint | number;
   }[];
@@ -122,19 +122,20 @@ export async function simulateTransaction(
     ...result,
     addresses: addresses.map((pubkey, ix) => {
       const isTokenAccount =
-        before[ix]!.owner.toBase58() === TOKEN_PROGRAM_ID.toBase58() &&
-        before[ix]!.data.length === ACCOUNT_SIZE;
+        before[ix]?.owner?.toBase58() === TOKEN_PROGRAM_ID.toBase58() &&
+        before[ix]?.data.length === ACCOUNT_SIZE;
       return {
         pubkey,
         owner: isTokenAccount
           ? AccountLayout.decode(before[ix]!.data).owner
-          : before[ix]!.owner,
+          : before[ix]?.owner,
         before:
           isTokenAccount && before[ix]!.data
             ? AccountLayout.decode(before[ix]!.data).amount
-            : before[ix]!.lamports,
+            : before[ix]?.lamports,
         after:
-          isTokenAccount && result.accounts?.[ix]?.data
+          isTokenAccount &&
+          result.accounts?.[ix]?.owner === TOKEN_PROGRAM_ID.toBase58()
             ? AccountLayout.decode(
                 base64.serialize(result.accounts![ix]!.data[0])
               ).amount
