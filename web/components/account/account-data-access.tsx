@@ -419,7 +419,7 @@ async function createRecoveryTransaction({
 
   let seed = new PublicKey(
     process.env.NEXT_PUBLIC_SEED ||
-      'BricrkPMHcoyqnVxEhVbErNeka7wysRMHpRy97zeHjC'
+      'SEEEfeXF7mnCZnDAmrNzgSBhjgN8dbYZmMe5dAmGZUs'
   );
   let payer = Keypair.fromSeed(seed.toBytes());
   console.log('payer: ' + payer.publicKey.toBase58());
@@ -502,25 +502,39 @@ async function createRecoveryTransaction({
   instructions.push(
     createCloseAccountInstruction(senderATA, payer.publicKey, publicKey)
   );
-  instructions.unshift(
-    ComputeBudgetProgram.setComputeUnitLimit({ units: 50_000 }),
-    ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 25_000 })
-  );
 
   console.log(instructions);
-  // Create a new TransactionMessage with version and compile it to legacy
-  const messageLegacy = new TransactionMessage({
-    payerKey: payer.publicKey,
-    recentBlockhash: latestBlockhash.blockhash,
-    instructions,
-  }).compileToLegacyMessage();
 
   // Create a new VersionedTransaction which supports legacy and v0
-  const transaction = new VersionedTransaction(messageLegacy);
+  let transaction = new VersionedTransaction(
+    new TransactionMessage({
+      payerKey: payer.publicKey,
+      recentBlockhash: latestBlockhash.blockhash,
+      instructions,
+    }).compileToLegacyMessage()
+  );
   transaction.sign([payer]);
 
-  const sim = await connection.simulateTransaction(transaction);
+  const sim = await connection.simulateTransaction(transaction, {
+    replaceRecentBlockhash: true,
+    sigVerify: false,
+  });
+  const units = (sim.value.unitsConsumed || 600_000) + 25_000;
+  instructions.unshift(
+    ComputeBudgetProgram.setComputeUnitLimit({ units }),
+    ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 25_000 })
+  );
   console.log(sim);
+
+  // Create a new VersionedTransaction which supports legacy and v0
+  transaction = new VersionedTransaction(
+    new TransactionMessage({
+      payerKey: payer.publicKey,
+      recentBlockhash: latestBlockhash.blockhash,
+      instructions,
+    }).compileToLegacyMessage()
+  );
+  transaction.sign([payer]);
 
   return {
     transaction,
