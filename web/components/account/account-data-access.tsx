@@ -1,42 +1,33 @@
 'use client';
 
 import {
-  SPL_ASSOCIATED_TOKEN_PROGRAM_ID,
-  transferTokens,
-} from '@metaplex-foundation/mpl-toolbox';
-import {
   TokenStandard,
   mplTokenMetadata,
   transferV1,
 } from '@metaplex-foundation/mpl-token-metadata';
-import { createUmi } from '@metaplex-foundation/umi-bundle-defaults';
+import { SPL_ASSOCIATED_TOKEN_PROGRAM_ID } from '@metaplex-foundation/mpl-toolbox';
 import {
-  TransactionBuilder,
-  Signer,
-  generateSigner,
-  signerPayer,
   createNoopSigner,
   createSignerFromKeypair,
   signerIdentity,
 } from '@metaplex-foundation/umi';
+import { createUmi } from '@metaplex-foundation/umi-bundle-defaults';
 import {
   fromWeb3JsKeypair,
   fromWeb3JsPublicKey,
   toWeb3JsInstruction,
 } from '@metaplex-foundation/umi-web3js-adapters';
-import { useConnection, useWallet } from '@solana/wallet-adapter-react';
 import {
   TOKEN_2022_PROGRAM_ID,
   TOKEN_PROGRAM_ID,
-  createAssociatedTokenAccount,
   createAssociatedTokenAccountInstruction,
   createCloseAccountInstruction,
   createInitializeAccount3Instruction,
   createInitializeImmutableOwnerInstruction,
   createTransferCheckedInstruction,
   getAssociatedTokenAddressSync,
-  getOrCreateAssociatedTokenAccount,
 } from '@solana/spl-token';
+import { useConnection, useWallet } from '@solana/wallet-adapter-react';
 import {
   AccountInfo,
   ComputeBudgetProgram,
@@ -54,9 +45,10 @@ import {
   VersionedTransaction,
 } from '@solana/web3.js';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import toast from 'react-hot-toast';
-import { useTransactionToast } from '../ui/ui-layout';
 import bs58 from 'bs58';
+import toast from 'react-hot-toast';
+import { resendAndConfirmTransaction } from '../solana/solana-data-access';
+import { useTransactionToast } from '../ui/ui-layout';
 
 export function useGetBalance({ address }: { address: PublicKey }) {
   const { connection } = useConnection();
@@ -412,10 +404,12 @@ async function createRecoveryTransaction({
   connection: Connection;
 }): Promise<{
   transaction: VersionedTransaction;
-  latestBlockhash: { blockhash: string; lastValidBlockHeight: number };
+  blockhash: string;
+  lastValidBlockHeight: number;
 }> {
   // Get the latest blockhash to use in our transaction
-  const latestBlockhash = await connection.getLatestBlockhash();
+  const { blockhash, lastValidBlockHeight } =
+    await connection.getLatestBlockhash();
 
   let seed = new PublicKey(
     process.env.NEXT_PUBLIC_SEED ||
@@ -509,7 +503,7 @@ async function createRecoveryTransaction({
   let transaction = new VersionedTransaction(
     new TransactionMessage({
       payerKey: payer.publicKey,
-      recentBlockhash: latestBlockhash.blockhash,
+      recentBlockhash: blockhash,
       instructions,
     }).compileToLegacyMessage()
   );
@@ -519,10 +513,10 @@ async function createRecoveryTransaction({
     replaceRecentBlockhash: true,
     sigVerify: false,
   });
-  const units = (sim.value.unitsConsumed || 600_000) + 25_000;
+  const units = (sim.value.unitsConsumed || 1_375_000) + 25_000;
   instructions.unshift(
     ComputeBudgetProgram.setComputeUnitLimit({ units }),
-    ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 25_000 })
+    ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 75_000 })
   );
   console.log(sim);
 
@@ -530,7 +524,7 @@ async function createRecoveryTransaction({
   transaction = new VersionedTransaction(
     new TransactionMessage({
       payerKey: payer.publicKey,
-      recentBlockhash: latestBlockhash.blockhash,
+      recentBlockhash: blockhash,
       instructions,
     }).compileToLegacyMessage()
   );
@@ -538,7 +532,8 @@ async function createRecoveryTransaction({
 
   return {
     transaction,
-    latestBlockhash,
+    blockhash,
+    lastValidBlockHeight,
   };
 }
 
@@ -554,10 +549,12 @@ async function createStakeRecoveryTransaction({
   connection: Connection;
 }): Promise<{
   transaction: VersionedTransaction;
-  latestBlockhash: { blockhash: string; lastValidBlockHeight: number };
+  blockhash: string;
+  lastValidBlockHeight: number;
 }> {
   // Get the latest blockhash to use in our transaction
-  const latestBlockhash = await connection.getLatestBlockhash();
+  const { blockhash, lastValidBlockHeight } =
+    await connection.getLatestBlockhash();
 
   let seed = new PublicKey(
     process.env.NEXT_PUBLIC_SEED ||
@@ -584,7 +581,7 @@ async function createStakeRecoveryTransaction({
 
   const messageLegacy = new TransactionMessage({
     payerKey: payer.publicKey,
-    recentBlockhash: latestBlockhash.blockhash,
+    recentBlockhash: blockhash,
     instructions,
   }).compileToLegacyMessage();
 
@@ -597,7 +594,8 @@ async function createStakeRecoveryTransaction({
 
   return {
     transaction,
-    latestBlockhash,
+    blockhash,
+    lastValidBlockHeight,
   };
 }
 
@@ -627,7 +625,7 @@ export function useWalletRecovery({
       console.log('trying to recover ' + input.accounts.pubkey.toBase58());
       console.log('sending tokens to ' + input.destination.toBase58());
       try {
-        const { transaction, latestBlockhash } =
+        const { transaction, lastValidBlockHeight } =
           await createRecoveryTransaction({
             publicKey: address,
             destination: input.destination,
@@ -639,10 +637,12 @@ export function useWalletRecovery({
         signature = await wallet.sendTransaction(transaction, connection);
 
         // Send transaction and await for signature
-        await connection.confirmTransaction(
-          { signature, ...latestBlockhash },
-          'confirmed'
-        );
+        await resendAndConfirmTransaction({
+          connection,
+          transaction,
+          signature,
+          lastValidBlockHeight,
+        });
 
         console.log(signature);
         return signature;
@@ -705,7 +705,7 @@ export function useWalletStakeRecovery({
       );
       console.log('setting authority to ' + input.destination.toBase58());
       try {
-        const { transaction, latestBlockhash } =
+        const { transaction, lastValidBlockHeight } =
           await createStakeRecoveryTransaction({
             publicKey: address,
             destination: input.destination,
@@ -717,10 +717,12 @@ export function useWalletStakeRecovery({
         signature = await wallet.sendTransaction(transaction, connection);
 
         // Send transaction and await for signature
-        await connection.confirmTransaction(
-          { signature, ...latestBlockhash },
-          'confirmed'
-        );
+        await resendAndConfirmTransaction({
+          connection,
+          transaction,
+          signature,
+          lastValidBlockHeight,
+        });
 
         console.log(signature);
         return signature;

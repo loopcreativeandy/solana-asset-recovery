@@ -148,10 +148,10 @@ export async function simulateTransaction(
 export async function buildTransactionFromPayload(
   connection: Connection,
   decodedTransaction: DecodedTransaction,
-  feepayer: Keypair,
-  publicKey: PublicKey
+  feepayer: Keypair
 ) {
-  const { blockhash } = await connection.getLatestBlockhash();
+  const { blockhash, lastValidBlockHeight } =
+    await connection.getLatestBlockhash();
   if (decodedTransaction.version === 0) {
     // change feepayer
     const message = new TransactionMessage({
@@ -167,7 +167,7 @@ export async function buildTransactionFromPayload(
     // partial sign
     newVersionedTx.sign([feepayer]);
 
-    return newVersionedTx;
+    return { transaction: newVersionedTx, lastValidBlockHeight };
   } else {
     console.log('building legacy transaction');
     const tx = new Transaction();
@@ -175,7 +175,7 @@ export async function buildTransactionFromPayload(
     tx.feePayer = feepayer.publicKey;
     tx.recentBlockhash = blockhash;
     tx.sign(feepayer);
-    return tx;
+    return { transaction: tx, lastValidBlockHeight };
   }
 }
 

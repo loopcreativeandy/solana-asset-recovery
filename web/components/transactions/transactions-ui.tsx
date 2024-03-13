@@ -15,6 +15,7 @@ import {
   simulateTransaction,
 } from './transactions-data-access';
 import { ExplorerLink } from '../cluster/cluster-ui';
+import { resendAndConfirmTransaction } from '../solana/solana-data-access';
 
 export function TransactionUi() {
   const wallet = useWallet();
@@ -48,16 +49,20 @@ export function TransactionUi() {
     }
 
     try {
-      const tx = await buildTransactionFromPayload(
-        connection,
-        decoded!,
-        feepayer,
-        wallet.publicKey
-      );
+      const { transaction, lastValidBlockHeight } =
+        await buildTransactionFromPayload(connection, decoded!, feepayer);
       //setTransaction(tx);
-      const signature = await wallet.sendTransaction(tx, connection);
+      const signature = await wallet.sendTransaction(transaction, connection, {
+        maxRetries: 0,
+      });
       setSignature(signature);
       setError('');
+      await resendAndConfirmTransaction({
+        connection,
+        transaction,
+        lastValidBlockHeight,
+        signature,
+      });
       transactionToast(signature);
     } catch (e: any) {
       setError(e.toString());
