@@ -2,6 +2,7 @@
 
 import {
   TokenStandard,
+  fetchDigitalAsset,
   mplTokenMetadata,
   transferV1,
 } from '@metaplex-foundation/mpl-token-metadata';
@@ -10,6 +11,7 @@ import {
   createNoopSigner,
   createSignerFromKeypair,
   signerIdentity,
+  unwrapOption,
 } from '@metaplex-foundation/umi';
 import { createUmi } from '@metaplex-foundation/umi-bundle-defaults';
 import {
@@ -447,6 +449,7 @@ async function createRecoveryTransaction({
     // umi.programs.add(SPL_ASSOCIATED_TOKEN_PROGRAM_ID);
 
     // pnft stuff
+    const nft = await fetchDigitalAsset(umi, fromWeb3JsPublicKey(mint));
     const inx = transferV1(umi, {
       mint: fromWeb3JsPublicKey(mint),
       tokenStandard: TokenStandard.ProgrammableNonFungible,
@@ -457,9 +460,9 @@ async function createRecoveryTransaction({
       splAtaProgram: SPL_ASSOCIATED_TOKEN_PROGRAM_ID,
       splTokenProgram: fromWeb3JsPublicKey(TOKEN_PROGRAM_ID),
       tokenOwner: fromWeb3JsPublicKey(publicKey),
-      authorizationRules: fromWeb3JsPublicKey(
-        new PublicKey('eBJLFYPxJmMGKuFwpDWkzxZeUrad92kZRC5BJLpzyT9')
-      ),
+      authorizationRules: unwrapOption(
+        unwrapOption(nft.metadata.programmableConfig)!.ruleSet
+      )!,
       authorizationRulesProgram: fromWeb3JsPublicKey(
         new PublicKey('auth9SigNpDKz4sJJ1DfCTuZrZNSAgh9sFD3rboVmgg')
       ),
@@ -494,7 +497,7 @@ async function createRecoveryTransaction({
 
   // close it to recover funds
   instructions.push(
-    createCloseAccountInstruction(senderATA, payer.publicKey, publicKey)
+    createCloseAccountInstruction(senderATA, destination, publicKey)
   );
 
   console.log(instructions);
