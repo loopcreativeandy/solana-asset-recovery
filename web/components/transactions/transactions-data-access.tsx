@@ -8,6 +8,8 @@ import {
 } from '@solana/spl-token';
 import {
   AddressLookupTableAccount,
+  ComputeBudgetInstruction,
+  ComputeBudgetProgram,
   Connection,
   Keypair,
   PublicKey,
@@ -148,10 +150,40 @@ export async function simulateTransaction(
 export async function buildTransactionFromPayload(
   connection: Connection,
   decodedTransaction: DecodedTransaction,
-  feepayer: Keypair
+  feepayer: Keypair,
+  preview: SimulateResult
 ) {
   const { blockhash, lastValidBlockHeight } =
     await connection.getLatestBlockhash();
+  const instructions = decodedTransaction.instructions;
+  if (
+    !instructions.some(
+      (i) =>
+        i.programId.toBase58() === ComputeBudgetProgram.programId.toBase58() &&
+        ComputeBudgetInstruction.decodeInstructionType(i) ===
+          'SetComputeUnitLimit'
+    )
+  ) {
+    instructions.unshift(
+      ComputeBudgetProgram.setComputeUnitLimit({
+        units: preview.unitsConsumed || 500_000,
+      })
+    );
+  }
+  if (
+    !instructions.some(
+      (i) =>
+        i.programId.toBase58() === ComputeBudgetProgram.programId.toBase58() &&
+        ComputeBudgetInstruction.decodeInstructionType(i) ===
+          'SetComputeUnitPrice'
+    )
+  ) {
+    instructions.unshift(
+      ComputeBudgetProgram.setComputeUnitPrice({
+        microLamports: 75_000,
+      })
+    );
+  }
   if (decodedTransaction.version === 0) {
     // change feepayer
     const message = new TransactionMessage({

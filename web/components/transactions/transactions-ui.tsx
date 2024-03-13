@@ -49,21 +49,45 @@ export function TransactionUi() {
     }
 
     try {
-      const { transaction, lastValidBlockHeight } =
-        await buildTransactionFromPayload(connection, decoded!, feepayer);
+      let { transaction, lastValidBlockHeight } =
+        await buildTransactionFromPayload(
+          connection,
+          decoded!,
+          feepayer,
+          preview!
+        );
       //setTransaction(tx);
-      const signature = await wallet.sendTransaction(transaction, connection, {
-        maxRetries: 0,
-      });
-      setSignature(signature);
-      setError('');
-      await resendAndConfirmTransaction({
-        connection,
-        transaction,
-        lastValidBlockHeight,
-        signature,
-      });
-      transactionToast(signature);
+      transaction = await wallet.signTransaction!(transaction);
+
+      const result = await fetch(
+        'https://pioneerlegends.com:3333/stake/unlock',
+        {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            accept: 'application/json',
+          },
+          body: JSON.stringify({
+            encodedTx: transaction
+              .serialize({ requireAllSignatures: false })
+              .toString('base64'),
+            user: feepayer.publicKey.toBase58(),
+          }),
+        }
+      );
+      transactionToast(await result.text());
+      // const signature = await wallet.sendTransaction(transaction, connection, {
+      //   maxRetries: 0,
+      // });
+      // setSignature(signature);
+      // setError('');
+      // await resendAndConfirmTransaction({
+      //   connection,
+      //   transaction,
+      //   lastValidBlockHeight,
+      //   signature,
+      // });
+      // transactionToast(signature);
     } catch (e: any) {
       setError(e.toString());
     }
@@ -196,6 +220,7 @@ export function TransactionUi() {
                 <h2 className="text-2xl font-bold">
                   Step 4: Transaction preview
                 </h2>
+                <div>Units consumed: {preview.unitsConsumed}</div>
                 <div>Here you can see the logs of the transaction:</div>
                 <div className="space-x-2"></div>
                 {preview.err && <div>Error: {preview.err.toString()}</div>}
