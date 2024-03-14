@@ -25,7 +25,7 @@ export async function resendAndConfirmTransaction({
     skipPreflight: true,
   };
   let retries = 0;
-  const getBackoff = (retries: number) => 1000 * (1 + 2 * retries);
+  const getBackoff = (retries: number) => 1000 * (1 + 1 * retries);
   let blockHeight = await connection.getBlockHeight(commitment);
   do {
     await sleep(getBackoff(retries));

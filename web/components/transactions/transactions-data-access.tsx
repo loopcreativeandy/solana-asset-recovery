@@ -198,7 +198,7 @@ export async function buildTransactionFromPayload(
   ) {
     instructions = [
       ComputeBudgetProgram.setComputeUnitPrice({
-        microLamports: 75_000,
+        microLamports: 100_000,
       }),
       ...instructions,
     ];
