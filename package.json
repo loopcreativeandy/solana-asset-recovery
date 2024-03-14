@@ -27,6 +27,7 @@
     "buffer": "6.0.3",
     "daisyui": "3.9.3",
     "encoding": "0.1.13",
+    "helius-sdk": "^1.2.5",
     "jotai": "2.5.1",
     "next": "13.4.4",
     "react": "18.2.0",

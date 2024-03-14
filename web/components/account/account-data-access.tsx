@@ -48,6 +48,11 @@ import {
 } from '@solana/web3.js';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import bs58 from 'bs58';
+import { RpcClient } from 'helius-sdk/dist/src/RpcClient';
+import {
+  AssetSortBy,
+  AssetSortDirection,
+} from 'helius-sdk/dist/src/types/enums';
 import toast from 'react-hot-toast';
 import { resendAndConfirmTransaction } from '../solana/solana-data-access';
 import { useTransactionToast } from '../ui/ui-layout';
@@ -88,6 +93,29 @@ export function useGetTokenAccounts({ address }: { address: PublicKey }) {
         }),
       ]);
       return [...tokenAccounts.value, ...token2022Accounts.value];
+    },
+  });
+}
+
+export function useGetNfts({ address }: { address: PublicKey }) {
+  const { connection } = useConnection();
+
+  return useQuery({
+    queryKey: ['get-nfts', { endpoint: connection.rpcEndpoint, address }],
+    queryFn: async () => {
+      const result = await new RpcClient(connection, 'helius-sdk').searchAssets(
+        {
+          ownerAddress: address.toBase58(),
+          compressed: false,
+          burnt: false,
+          page: 1,
+          sortBy: {
+            sortBy: AssetSortBy.Created,
+            sortDirection: AssetSortDirection.Desc,
+          },
+        }
+      );
+      return result.items;
     },
   });
 }
