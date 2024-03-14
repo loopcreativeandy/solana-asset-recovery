@@ -26,11 +26,13 @@ export type DecodedTransaction = {
   version: 'legacy' | 0;
   instructions: TransactionInstruction[];
   addressLookupTableAccounts?: AddressLookupTableAccount[];
+  needsExtraSigner: boolean;
 };
 
 export async function decodeTransactionFromPayload(
   connection: Connection,
-  payload: string
+  payload: string,
+  defaultSigners: PublicKey[]
 ): Promise<DecodedTransaction> {
   const decodedMessage = bs58.decode(payload);
   const emptySignature = new Uint8Array(1 + 64);
@@ -69,15 +71,30 @@ export async function decodeTransactionFromPayload(
     const decompiledMessage = TransactionMessage.decompile(tx.message, {
       addressLookupTableAccounts: nonNullAtlAccounts,
     });
+    const txSigners = decompiledMessage.instructions.flatMap((i) =>
+      i.keys.filter((k) => k.isSigner).map((k) => k.pubkey)
+    );
     return {
       version: 0,
       instructions: decompiledMessage.instructions,
       addressLookupTableAccounts: nonNullAtlAccounts,
+      needsExtraSigner: txSigners.some(
+        (s) => !defaultSigners.some((d) => d.toBase58() === s.toBase58())
+      ),
     };
   } else {
     console.log('building legacy transaction');
     const tx = Transaction.from(serialTx);
-    return { version: 'legacy', instructions: tx.instructions };
+    const txSigners = tx.instructions.flatMap((i) =>
+      i.keys.filter((k) => k.isSigner).map((k) => k.pubkey)
+    );
+    return {
+      version: 'legacy',
+      instructions: tx.instructions,
+      needsExtraSigner: txSigners.some(
+        (s) => !defaultSigners.some((d) => d.toBase58() === s.toBase58())
+      ),
+    };
   }
 }
 
@@ -155,7 +172,7 @@ export async function buildTransactionFromPayload(
 ) {
   const { blockhash, lastValidBlockHeight } =
     await connection.getLatestBlockhash();
-  const instructions = decodedTransaction.instructions;
+  let instructions = decodedTransaction.instructions;
   if (
     !instructions.some(
       (i) =>
@@ -164,11 +181,12 @@ export async function buildTransactionFromPayload(
           'SetComputeUnitLimit'
     )
   ) {
-    instructions.unshift(
+    instructions = [
       ComputeBudgetProgram.setComputeUnitLimit({
         units: preview.unitsConsumed || 500_000,
-      })
-    );
+      }),
+      ...instructions,
+    ];
   }
   if (
     !instructions.some(
@@ -178,11 +196,12 @@ export async function buildTransactionFromPayload(
           'SetComputeUnitPrice'
     )
   ) {
-    instructions.unshift(
+    instructions = [
       ComputeBudgetProgram.setComputeUnitPrice({
         microLamports: 75_000,
-      })
-    );
+      }),
+      ...instructions,
+    ];
   }
   if (decodedTransaction.version === 0) {
     // change feepayer

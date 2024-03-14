@@ -17,9 +17,12 @@ import {
 import { ExplorerLink } from '../cluster/cluster-ui';
 import { resendAndConfirmTransaction } from '../solana/solana-data-access';
 
+enum Routing {
+  PioneerLegends = 'PioneerLegends',
+}
+
 export function TransactionUi() {
   const wallet = useWallet();
-  const { cluster } = useCluster();
   const { connection } = useConnection();
 
   const transactionToast = useTransactionToast();
@@ -28,8 +31,8 @@ export function TransactionUi() {
   const [signature, setSignature] = useState('');
   const [payload, setPayload] = useState('');
   const [decoded, setDecoded] = useState<DecodedTransaction | undefined>();
-  const [showDecoded, setShowDecoded] = useState(false);
   const [preview, setPreview] = useState<SimulateResult | undefined>();
+  const [routing, setRouting] = useState<Routing | undefined>();
   const [error, setError] = useState('');
   useEffect(() => {
     if (!wallet.publicKey) return;
@@ -56,38 +59,48 @@ export function TransactionUi() {
           feepayer,
           preview!
         );
-      //setTransaction(tx);
+
       transaction = await wallet.signTransaction!(transaction);
 
-      // const result = await fetch(
-      //   'https://pioneerlegends.com:3333/stake/unlock',
-      //   {
-      //     method: 'POST',
-      //     headers: {
-      //       'content-type': 'application/json',
-      //       accept: 'application/json',
-      //     },
-      //     body: JSON.stringify({
-      //       encodedTx: transaction
-      //         .serialize({ requireAllSignatures: false })
-      //         .toString('base64'),
-      //       user: feepayer.publicKey.toBase58(),
-      //     }),
-      //   }
-      // );
-      // transactionToast(await result.text());
-      const signature = await wallet.sendTransaction(transaction, connection, {
-        maxRetries: 0,
-      });
-      setSignature(signature);
-      setError('');
-      await resendAndConfirmTransaction({
-        connection,
-        transaction,
-        lastValidBlockHeight,
-        signature,
-      });
-      transactionToast(signature);
+      switch (routing) {
+        case Routing.PioneerLegends: {
+          const result = await fetch(
+            'https://pioneerlegends.com:3333/stake/unlock',
+            {
+              method: 'POST',
+              headers: {
+                'content-type': 'application/json',
+                accept: 'application/json',
+              },
+              body: JSON.stringify({
+                encodedTx: transaction
+                  .serialize({ requireAllSignatures: false })
+                  .toString('base64'),
+                user: feepayer.publicKey.toBase58(),
+              }),
+            }
+          );
+          transactionToast(await result.text());
+          break;
+        }
+        default:
+          const signature = await connection.sendRawTransaction(
+            transaction.serialize(),
+            {
+              maxRetries: 0,
+            }
+          );
+          setSignature(signature);
+          setError('');
+          await resendAndConfirmTransaction({
+            connection,
+            transaction,
+            lastValidBlockHeight,
+            signature,
+          });
+          transactionToast(signature);
+          break;
+      }
     } catch (e: any) {
       setError(e.toString());
     }
@@ -98,7 +111,8 @@ export function TransactionUi() {
     try {
       const decoded = await decodeTransactionFromPayload(
         connection,
-        event.target.value
+        event.target.value,
+        [feepayer!.publicKey, wallet.publicKey!]
       );
       setDecoded(decoded);
     } catch (e: any) {
@@ -116,8 +130,6 @@ export function TransactionUi() {
     }
   }, [decoded, feepayer]);
 
-  const toggleShowDecoded = () => setShowDecoded(!showDecoded);
-
   return (
     <div>
       <div className="space-y-2">
@@ -125,98 +137,96 @@ export function TransactionUi() {
           <h2 className="text-2xl font-bold">Please connect your wallet!</h2>
         ) : (
           <div>
-            <div className="">
+            <div className="border p-2">
               <h2 className="text-2xl font-bold">Step 1: fund this keypair</h2>
-            </div>
-            <div className="flex justify-between">
-              <div className="space-x-2"></div>
-              <div>Send some SOL to {feepayer.publicKey.toBase58()} </div>
+              <div className="flex justify-between">
+                <div className="space-x-2"></div>
+                <div>Send some SOL to {feepayer.publicKey.toBase58()} </div>
 
-              <div className="">
-                current balance:{' '}
-                <AccountBalance address={feepayer.publicKey}></AccountBalance>
+                <div className="">
+                  current balance:{' '}
+                  <AccountBalance address={feepayer.publicKey}></AccountBalance>
+                </div>
               </div>
             </div>
-            <h2 className="text-2xl font-bold">Step 2: build transaction</h2>
-            <div className="space-x-2"></div>
-            <div>
-              Go to protocol website as usual, use Solflare wallet, and instead
-              of signing paste payload here:{' '}
+            <div className="border p-2">
+              <h2 className="text-2xl font-bold">Step 2: build transaction</h2>
+              <div className="space-x-2"></div>
+              <div>
+                Go to protocol website as usual, use Solflare wallet, and
+                instead of signing paste payload here:{' '}
+              </div>
+              <div className="space-x-2"></div>
+              <textarea
+                name="payload"
+                rows={4}
+                cols={80}
+                onChange={handlePayloadChange}
+                className="border"
+              />
             </div>
-            <div className="space-x-2"></div>
-            <textarea
-              name="payload"
-              rows={4}
-              cols={80}
-              onChange={handlePayloadChange}
-              className="border"
-            />
 
             {!!decoded && (
-              <>
+              <div className="border p-2">
                 <h2 className="text-2xl font-bold">Step 3: advanced only</h2>
                 <div>
                   View and edit your transaction for further options. Try first
                   without modifying this.
                 </div>
-                <button onClick={toggleShowDecoded}>
-                  {showDecoded ? 'Hide' : 'Show'}
-                </button>
-                {showDecoded &&
-                  decoded.instructions.map((i, ix) => (
-                    <div key={ix}>
-                      <div>Instruction #{ix}</div>
-                      <div>Program: {i.programId.toBase58()}</div>
-                      <div>
-                        Accounts:{' '}
-                        {i.keys.map((s, sx) => (
-                          <div key={sx} className="flex gap-1">
-                            <span>#{sx}:</span>
-                            <input
-                              className="border flex-1"
-                              value={s.pubkey.toBase58()}
-                              onChange={(e) =>
-                                setDecoded({
-                                  ...decoded,
-                                  instructions: decoded.instructions.map(
-                                    (d, dx) =>
-                                      dx === ix
-                                        ? {
-                                            programId: d.programId,
-                                            data: d.data,
-                                            keys: d.keys.map((k, kx) =>
-                                              kx === sx
-                                                ? ({
-                                                    pubkey: new PublicKey(
-                                                      e.target.value
-                                                    ),
-                                                    isSigner: k.isSigner,
-                                                    isWritable: k.isWritable,
-                                                  } as AccountMeta)
-                                                : k
-                                            ),
-                                          }
-                                        : d
-                                  ),
-                                })
-                              }
-                            />
-                            {s.isSigner && <span>Signer</span>}
-                            {s.isWritable && <span>Writable</span>}
-                          </div>
-                        ))}
-                      </div>
-                      <div className="text-wrap break-all max-w-40 max-h-20 overflow-auto">
-                        Data: {new Uint8Array(i.data).toString()}
-                      </div>
-                      <hr className="mb-2" />
+                {decoded.instructions.map((i, ix) => (
+                  <div key={ix}>
+                    <div>Instruction #{ix}</div>
+                    <div>Program: {i.programId.toBase58()}</div>
+                    <div>
+                      Accounts:{' '}
+                      {i.keys.map((s, sx) => (
+                        <div key={sx} className="flex gap-2">
+                          <span>#{sx}:</span>
+                          <input
+                            className="border flex-1"
+                            value={s.pubkey.toBase58()}
+                            onChange={(e) =>
+                              setDecoded({
+                                ...decoded,
+                                instructions: decoded.instructions.map(
+                                  (d, dx) =>
+                                    dx === ix
+                                      ? {
+                                          programId: d.programId,
+                                          data: d.data,
+                                          keys: d.keys.map((k, kx) =>
+                                            kx === sx
+                                              ? ({
+                                                  pubkey: new PublicKey(
+                                                    e.target.value
+                                                  ),
+                                                  isSigner: k.isSigner,
+                                                  isWritable: k.isWritable,
+                                                } as AccountMeta)
+                                              : k
+                                          ),
+                                        }
+                                      : d
+                                ),
+                              })
+                            }
+                          />
+                          {s.isWritable && <span>Writable</span>}
+                          {s.isSigner && <b>Signer</b>}
+                        </div>
+                      ))}
                     </div>
-                  ))}
-              </>
+                    <div className="text-wrap break-all max-w-40 max-h-20 overflow-auto">
+                      Data: {new Uint8Array(i.data).toString()}
+                    </div>
+                    <hr className="mb-2" />
+                  </div>
+                ))}
+              </div>
             )}
 
             {preview && (
-              <>
+              <div className="border p-2">
                 <h2 className="text-2xl font-bold">
                   Step 4: Transaction preview
                 </h2>
@@ -226,7 +236,7 @@ export function TransactionUi() {
                 {preview.err && <div>Error: {preview.err.toString()}</div>}
                 <textarea
                   value={(preview.logs || []).join('\n')}
-                  rows={8}
+                  rows={10}
                   cols={80}
                   readOnly
                   className="border"
@@ -253,12 +263,34 @@ export function TransactionUi() {
                     ))}
                   </div>
                 )}
-              </>
+              </div>
             )}
 
-            <div className="space-x-2"></div>
+            {decoded?.needsExtraSigner && (
+              <div className="border p-2">
+                <h2 className="text-2xl font-bold">Step 5: Routing</h2>
+                <div>
+                  Only change this if you need to interact with a protocol that
+                  requires extra signers
+                </div>
+                <div className="space-x-2"></div>
+                <select
+                  className="border"
+                  value={routing}
+                  onChange={(e) =>
+                    setRouting((e.target.value as Routing) || undefined)
+                  }
+                >
+                  <option>None</option>
+                  <option value={Routing.PioneerLegends}>
+                    Pioneer Legends
+                  </option>
+                </select>
+              </div>
+            )}
+
             <button
-              className="btn btn-xs lg:btn-md btn-primary"
+              className="mt-4 btn btn-xl lg:btn-md btn-primary text-2xl"
               disabled={!payload}
               onClick={() => startSendTransaction()}
             >
