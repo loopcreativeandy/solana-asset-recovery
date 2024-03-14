@@ -497,7 +497,7 @@ async function createRecoveryTransaction({
 
   // close it to recover funds
   instructions.push(
-    createCloseAccountInstruction(senderATA, destination, publicKey)
+    createCloseAccountInstruction(senderATA, payer.publicKey, publicKey)
   );
 
   console.log(instructions);
