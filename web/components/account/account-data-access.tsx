@@ -54,7 +54,11 @@ import {
   AssetSortDirection,
 } from 'helius-sdk/dist/src/types/enums';
 import toast from 'react-hot-toast';
-import { resendAndConfirmTransaction } from '../solana/solana-data-access';
+import {
+  PriorityLevel,
+  getPriorityFeeEstimate,
+  resendAndConfirmTransaction,
+} from '../solana/solana-data-access';
 import { useTransactionToast } from '../ui/ui-layout';
 
 export function useGetBalance({ address }: { address: PublicKey }) {
@@ -545,9 +549,15 @@ async function createRecoveryTransaction({
     sigVerify: false,
   });
   const units = (sim.value.unitsConsumed || 1_375_000) + 25_000;
+  const microLamports = await getPriorityFeeEstimate(
+    connection.rpcEndpoint,
+    transaction,
+    PriorityLevel.High
+  );
+
   instructions.unshift(
     ComputeBudgetProgram.setComputeUnitLimit({ units }),
-    ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 75_000 })
+    ComputeBudgetProgram.setComputeUnitPrice({ microLamports })
   );
   console.log(sim);
 

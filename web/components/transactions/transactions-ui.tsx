@@ -89,14 +89,21 @@ export function TransactionUi() {
           );
           setSignature(signature);
           setError('');
-          await connection.confirmTransaction(
-            {
-              lastValidBlockHeight,
-              blockhash,
-              signature,
-            },
-            'processed'
-          );
+          await resendAndConfirmTransaction({
+            connection,
+            transaction,
+            lastValidBlockHeight,
+            signature,
+            commitment: 'processed',
+          });
+          // await connection.confirmTransaction(
+          //   {
+          //     lastValidBlockHeight,
+          //     blockhash,
+          //     signature,
+          //   },
+          //   'processed'
+          // );
           transactionToast(signature);
           break;
       }

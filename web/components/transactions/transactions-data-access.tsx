@@ -21,6 +21,10 @@ import {
   VersionedTransaction,
 } from '@solana/web3.js';
 import bs58 from 'bs58';
+import {
+  PriorityLevel,
+  getPriorityFeeEstimate,
+} from '../solana/solana-data-access';
 
 export type DecodedTransaction = {
   version: 'legacy' | 0;
@@ -196,9 +200,20 @@ export async function buildTransactionFromPayload(
           'SetComputeUnitPrice'
     )
   ) {
+    const microLamports = await getPriorityFeeEstimate(
+      connection.rpcEndpoint,
+      new VersionedTransaction(
+        new TransactionMessage({
+          payerKey: feepayer.publicKey,
+          recentBlockhash: blockhash,
+          instructions: decodedTransaction.instructions,
+        }).compileToV0Message(decodedTransaction.addressLookupTableAccounts)
+      ),
+      PriorityLevel.High
+    );
     instructions = [
       ComputeBudgetProgram.setComputeUnitPrice({
-        microLamports: 100_000,
+        microLamports,
       }),
       ...instructions,
     ];
