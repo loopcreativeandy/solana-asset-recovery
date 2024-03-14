@@ -218,7 +218,7 @@ export async function buildTransactionFromPayload(
     // partial sign
     newVersionedTx.sign([feepayer]);
 
-    return { transaction: newVersionedTx, lastValidBlockHeight };
+    return { transaction: newVersionedTx, blockhash, lastValidBlockHeight };
   } else {
     console.log('building legacy transaction');
     const tx = new Transaction();
@@ -226,7 +226,7 @@ export async function buildTransactionFromPayload(
     tx.feePayer = feepayer.publicKey;
     tx.recentBlockhash = blockhash;
     tx.sign(feepayer);
-    return { transaction: tx, lastValidBlockHeight };
+    return { transaction: tx, blockhash, lastValidBlockHeight };
   }
 }
 

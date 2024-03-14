@@ -52,7 +52,7 @@ export function TransactionUi() {
     }
 
     try {
-      let { transaction, lastValidBlockHeight } =
+      let { transaction, blockhash, lastValidBlockHeight } =
         await buildTransactionFromPayload(
           connection,
           decoded!,
@@ -85,19 +85,18 @@ export function TransactionUi() {
         }
         default:
           const signature = await connection.sendRawTransaction(
-            transaction.serialize(),
-            {
-              maxRetries: 0,
-            }
+            transaction.serialize()
           );
           setSignature(signature);
           setError('');
-          await resendAndConfirmTransaction({
-            connection,
-            transaction,
-            lastValidBlockHeight,
-            signature,
-          });
+          await connection.confirmTransaction(
+            {
+              lastValidBlockHeight,
+              blockhash,
+              signature,
+            },
+            'processed'
+          );
           transactionToast(signature);
           break;
       }
