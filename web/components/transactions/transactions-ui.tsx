@@ -1,10 +1,17 @@
 'use client';
 
+import { base58 } from '@metaplex-foundation/umi/serializers';
 import { useConnection, useWallet } from '@solana/wallet-adapter-react';
-import { AccountMeta, Keypair, PublicKey } from '@solana/web3.js';
+import {
+  AccountMeta,
+  Keypair,
+  PublicKey,
+  SystemProgram,
+} from '@solana/web3.js';
 import { useEffect, useState } from 'react';
 import { AccountBalance } from '../account/account-ui';
-import { useCluster } from '../cluster/cluster-data-access';
+import { ExplorerLink } from '../cluster/cluster-ui';
+import { resendAndConfirmTransaction } from '../solana/solana-data-access';
 import { ellipsify, useTransactionToast } from '../ui/ui-layout';
 import {
   DecodedTransaction,
@@ -13,9 +20,9 @@ import {
   decodeTransactionFromPayload,
   getFeepayerForWallet,
   simulateTransaction,
+  withdrawAll,
 } from './transactions-data-access';
-import { ExplorerLink } from '../cluster/cluster-ui';
-import { resendAndConfirmTransaction } from '../solana/solana-data-access';
+import { isPublicKey } from '@metaplex-foundation/umi';
 
 enum Routing {
   PioneerLegends = 'PioneerLegends',
@@ -34,11 +41,13 @@ export function TransactionUi() {
   const [preview, setPreview] = useState<SimulateResult | undefined>();
   const [routing, setRouting] = useState<Routing | undefined>();
   const [error, setError] = useState('');
+
   useEffect(() => {
     if (!wallet.publicKey) return;
     const fp = getFeepayerForWallet(wallet.publicKey);
     setFeePayer(fp);
   }, [wallet]);
+
   function startSendTransaction() {
     sendTransaction();
   }
@@ -55,6 +64,7 @@ export function TransactionUi() {
       let { transaction, blockhash, lastValidBlockHeight } =
         await buildTransactionFromPayload(
           connection,
+          wallet.publicKey,
           decoded!,
           feepayer,
           preview!
@@ -112,6 +122,27 @@ export function TransactionUi() {
     }
   }
 
+  const handleClaimFees = async function () {
+    const sendTo = prompt('Where do we send the balance of this wallet?');
+    if (sendTo && isPublicKey(sendTo)) {
+      const { transaction, blockhash, lastValidBlockHeight } =
+        await withdrawAll(connection, feepayer!, new PublicKey(sendTo));
+      const signature = await connection.sendRawTransaction(
+        transaction.serialize()
+      );
+      setSignature(signature);
+      setError('');
+      await resendAndConfirmTransaction({
+        connection,
+        transaction,
+        lastValidBlockHeight,
+        signature,
+        commitment: 'confirmed',
+      });
+      transactionToast(signature);
+    }
+  };
+
   const handlePayloadChange = async function (event: any) {
     setPayload(event.target.value);
     try {
@@ -145,19 +176,23 @@ export function TransactionUi() {
           <div>
             <div className="border p-2">
               <h2 className="text-2xl font-bold">Step 1: fund this keypair</h2>
-              <div className="flex justify-between">
-                <div className="space-x-2"></div>
+              <div className="flex flex-col">
                 <div>Send some SOL to {feepayer.publicKey.toBase58()} </div>
 
-                <div className="">
+                <div>
                   current balance:{' '}
                   <AccountBalance address={feepayer.publicKey}></AccountBalance>
+                  <button
+                    className="btn btn-secondary"
+                    onClick={handleClaimFees}
+                  >
+                    Claim
+                  </button>
                 </div>
               </div>
             </div>
-            <div className="border p-2">
+            <div className="border p-2 flex flex-col gap-2">
               <h2 className="text-2xl font-bold">Step 2: build transaction</h2>
-              <div className="space-x-2"></div>
               <div>
                 Go to protocol website as usual, use Solflare wallet, and
                 instead of signing paste payload here:{' '}
@@ -181,7 +216,22 @@ export function TransactionUi() {
                 </div>
                 {decoded.instructions.map((i, ix) => (
                   <div key={ix}>
-                    <div>Instruction #{ix}</div>
+                    <div>
+                      Instruction #{ix}{' '}
+                      <button
+                        className="btn"
+                        onClick={() =>
+                          setDecoded({
+                            ...decoded,
+                            instructions: decoded.instructions.filter(
+                              (d, dx) => dx !== ix
+                            ),
+                          })
+                        }
+                      >
+                        Delete
+                      </button>
+                    </div>
                     <div>Program: {i.programId.toBase58()}</div>
                     <div>
                       Accounts:{' '}
@@ -223,7 +273,7 @@ export function TransactionUi() {
                       ))}
                     </div>
                     <div className="text-wrap break-all max-w-40 max-h-20 overflow-auto">
-                      Data: {new Uint8Array(i.data).toString()}
+                      Data: {base58.deserialize(new Uint8Array(i.data))[0]}
                     </div>
                     <hr className="mb-2" />
                   </div>

@@ -13,11 +13,13 @@ import {
   Connection,
   Keypair,
   PublicKey,
+  SignaturePubkeyPair,
   SimulatedTransactionResponse,
   SystemProgram,
   Transaction,
   TransactionInstruction,
   TransactionMessage,
+  VersionedMessage,
   VersionedTransaction,
 } from '@solana/web3.js';
 import bs58 from 'bs58';
@@ -29,16 +31,37 @@ import {
 export type DecodedTransaction = {
   version: 'legacy' | 0;
   instructions: TransactionInstruction[];
+  blockhash: string;
+  signatures: SignaturePubkeyPair[];
   addressLookupTableAccounts?: AddressLookupTableAccount[];
   needsExtraSigner: boolean;
 };
+
+function decodeLength(bytes: number[]) {
+  let len = 0;
+  let size = 0;
+  for (;;) {
+    let elem = bytes.shift()!;
+    len |= (elem & 0x7f) << (size * 7);
+    size += 1;
+    if ((elem & 0x80) === 0) {
+      break;
+    }
+  }
+  return len;
+}
 
 export async function decodeTransactionFromPayload(
   connection: Connection,
   payload: string,
   defaultSigners: PublicKey[]
 ): Promise<DecodedTransaction> {
-  const decodedMessage = bs58.decode(payload);
+  let decodedMessage: Uint8Array;
+  try {
+    decodedMessage = bs58.decode(payload);
+  } catch (err: any) {
+    decodedMessage = base64.serialize(payload);
+  }
   const emptySignature = new Uint8Array(1 + 64);
   emptySignature[0] = 1;
 
@@ -51,7 +74,22 @@ export async function decodeTransactionFromPayload(
   const isVersionedTx = decodedMessage[0] & 128;
   if (isVersionedTx) {
     console.log('building versioned transaction');
-    const tx = VersionedTransaction.deserialize(serialTx);
+    let byteArray = [...serialTx];
+    const signatures = [];
+    const signaturesLength = decodeLength(byteArray);
+    for (let i = 0; i < signaturesLength; i++) {
+      signatures.push(new Uint8Array(byteArray.splice(0, 64)));
+    }
+    const message = VersionedMessage.deserialize(new Uint8Array(byteArray));
+    for (
+      let i = signatures.length;
+      i < message.header.numRequiredSignatures;
+      i++
+    ) {
+      signatures.push(new Uint8Array(new Array(64).fill(0)));
+    }
+    const tx = new VersionedTransaction(message, signatures);
+    console.info(tx.message.staticAccountKeys.map((s) => s.toBase58()));
 
     // get lookup tables
     const atls = tx.message.addressTableLookups.map(
@@ -82,6 +120,8 @@ export async function decodeTransactionFromPayload(
       version: 0,
       instructions: decompiledMessage.instructions,
       addressLookupTableAccounts: nonNullAtlAccounts,
+      blockhash: decompiledMessage.recentBlockhash,
+      signatures: [],
       needsExtraSigner: txSigners.some(
         (s) => !defaultSigners.some((d) => d.toBase58() === s.toBase58())
       ),
@@ -92,9 +132,17 @@ export async function decodeTransactionFromPayload(
     const txSigners = tx.instructions.flatMap((i) =>
       i.keys.filter((k) => k.isSigner).map((k) => k.pubkey)
     );
+    console.info(
+      tx.signatures.map(
+        (s) => `${s.publicKey.toBase58()} ${s.signature?.toJSON()}`
+      )
+    );
+    console.info(tx.feePayer?.toBase58());
     return {
       version: 'legacy',
       instructions: tx.instructions,
+      blockhash: tx.recentBlockhash!,
+      signatures: tx.signatures,
       needsExtraSigner: txSigners.some(
         (s) => !defaultSigners.some((d) => d.toBase58() === s.toBase58())
       ),
@@ -170,6 +218,7 @@ export async function simulateTransaction(
 
 export async function buildTransactionFromPayload(
   connection: Connection,
+  wallet: PublicKey,
   decodedTransaction: DecodedTransaction,
   feepayer: Keypair,
   preview: SimulateResult
@@ -177,6 +226,7 @@ export async function buildTransactionFromPayload(
   const { blockhash, lastValidBlockHeight } =
     await connection.getLatestBlockhash();
   let instructions = decodedTransaction.instructions;
+
   if (
     !instructions.some(
       (i) =>
@@ -187,7 +237,7 @@ export async function buildTransactionFromPayload(
   ) {
     instructions = [
       ComputeBudgetProgram.setComputeUnitLimit({
-        units: preview.unitsConsumed || 500_000,
+        units: Math.floor(preview.unitsConsumed || 500_000),
       }),
       ...instructions,
     ];
@@ -209,11 +259,11 @@ export async function buildTransactionFromPayload(
           instructions: decodedTransaction.instructions,
         }).compileToV0Message(decodedTransaction.addressLookupTableAccounts)
       ),
-      PriorityLevel.High
+      PriorityLevel.Default
     );
     instructions = [
       ComputeBudgetProgram.setComputeUnitPrice({
-        microLamports,
+        microLamports: Math.floor(microLamports),
       }),
       ...instructions,
     ];
@@ -259,4 +309,32 @@ export function getFeepayerForWallet(pk: PublicKey) {
     maskBytes[i] ? b + uesrBytes[i] : b
   );
   return Keypair.fromSeed(newSeed);
+}
+
+export async function withdrawAll(
+  connection: Connection,
+  feepayer: Keypair,
+  destination: PublicKey
+) {
+  const lamports = await connection.getBalance(feepayer.publicKey);
+  const { blockhash, lastValidBlockHeight } =
+    await connection.getLatestBlockhash();
+  const transaction = new VersionedTransaction(
+    new TransactionMessage({
+      payerKey: feepayer.publicKey,
+      recentBlockhash: blockhash,
+      instructions: [
+        ComputeBudgetProgram.setComputeUnitLimit({ units: 10_000 }),
+        ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 50_000 }),
+        SystemProgram.transfer({
+          fromPubkey: feepayer.publicKey,
+          toPubkey: destination,
+          lamports: lamports - 5500,
+        }),
+      ],
+    }).compileToLegacyMessage()
+  );
+  transaction.sign([feepayer]);
+
+  return { transaction, blockhash, lastValidBlockHeight };
 }
