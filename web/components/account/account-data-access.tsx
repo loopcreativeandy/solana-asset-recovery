@@ -24,6 +24,7 @@ import {
   TOKEN_PROGRAM_ID,
   createAssociatedTokenAccountInstruction,
   createCloseAccountInstruction,
+  createHarvestWithheldTokensToMintInstruction,
   createInitializeAccount3Instruction,
   createInitializeImmutableOwnerInstruction,
   createTransferCheckedInstruction,
@@ -454,8 +455,14 @@ async function createRecoveryTransaction({
 
   let senderATA = accounts.pubkey;
   let mint = new PublicKey(accounts.account.data.parsed.info.mint);
-  let recievingATA = getAssociatedTokenAddressSync(mint, destination);
-  let amount = accounts.account.data.parsed.info.tokenAmount.amount;
+  const tokenProgramId = accounts.account.owner;
+  let recievingATA = getAssociatedTokenAddressSync(
+    mint,
+    destination,
+    true,
+    tokenProgramId
+  );
+  let amount = parseInt(accounts.account.data.parsed.info.tokenAmount.amount);
   let decimals = accounts.account.data.parsed.info.tokenAmount.decimals;
   console.log('sending ' + amount + ' ' + mint);
 
@@ -511,7 +518,8 @@ async function createRecoveryTransaction({
           payer.publicKey,
           recievingATA,
           destination,
-          mint
+          mint,
+          tokenProgramId
         )
       );
     }
@@ -522,14 +530,32 @@ async function createRecoveryTransaction({
         recievingATA,
         publicKey,
         amount,
-        decimals
+        decimals,
+        [],
+        tokenProgramId
+      )
+    );
+  }
+
+  if (tokenProgramId.toBase58() === TOKEN_2022_PROGRAM_ID.toBase58()) {
+    instructions.push(
+      createHarvestWithheldTokensToMintInstruction(
+        mint,
+        [senderATA],
+        tokenProgramId
       )
     );
   }
 
   // close it to recover funds
   instructions.push(
-    createCloseAccountInstruction(senderATA, payer.publicKey, publicKey)
+    createCloseAccountInstruction(
+      senderATA,
+      payer.publicKey,
+      publicKey,
+      [],
+      tokenProgramId
+    )
   );
 
   console.log(instructions);
