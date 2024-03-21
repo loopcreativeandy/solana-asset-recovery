@@ -3,8 +3,11 @@
 import { base64 } from '@metaplex-foundation/umi/serializers';
 import {
   ACCOUNT_SIZE,
+  ASSOCIATED_TOKEN_PROGRAM_ID,
   AccountLayout,
   TOKEN_PROGRAM_ID,
+  createAssociatedTokenAccountInstruction,
+  getAssociatedTokenAddressSync,
 } from '@solana/spl-token';
 import {
   AddressLookupTableAccount,
@@ -54,6 +57,7 @@ function decodeLength(bytes: number[]) {
 export async function decodeTransactionFromPayload(
   connection: Connection,
   payload: string,
+  feePayer: PublicKey,
   defaultSigners: PublicKey[]
 ): Promise<DecodedTransaction> {
   let decodedMessage: Uint8Array;
@@ -72,6 +76,7 @@ export async function decodeTransactionFromPayload(
     serialTx.set(decodedMessage, emptySignature.length);
 
   const isVersionedTx = decodedMessage[0] & 128;
+  let decoded: DecodedTransaction;
   if (isVersionedTx) {
     console.log('building versioned transaction');
     let byteArray = [...serialTx];
@@ -116,7 +121,7 @@ export async function decodeTransactionFromPayload(
     const txSigners = decompiledMessage.instructions.flatMap((i) =>
       i.keys.filter((k) => k.isSigner).map((k) => k.pubkey)
     );
-    return {
+    decoded = {
       version: 0,
       instructions: decompiledMessage.instructions,
       addressLookupTableAccounts: nonNullAtlAccounts,
@@ -138,7 +143,7 @@ export async function decodeTransactionFromPayload(
       )
     );
     console.info(tx.feePayer?.toBase58());
-    return {
+    decoded = {
       version: 'legacy',
       instructions: tx.instructions,
       blockhash: tx.recentBlockhash!,
@@ -148,6 +153,25 @@ export async function decodeTransactionFromPayload(
       ),
     };
   }
+
+  // change payer for AToken instructions
+  decoded.instructions.forEach((ix) => {
+    if (ix.programId.toBase58() === ASSOCIATED_TOKEN_PROGRAM_ID.toBase58()) {
+      ix.keys[0].pubkey = feePayer;
+    }
+  });
+
+  return decoded;
+}
+
+export function getCreateATA(
+  feepayer: PublicKey,
+  owner: PublicKey,
+  mint: PublicKey
+) {
+  const ata = getAssociatedTokenAddressSync(mint, owner);
+
+  return createAssociatedTokenAccountInstruction(feepayer, ata, owner, mint);
 }
 
 export type SimulateResult = SimulatedTransactionResponse & {

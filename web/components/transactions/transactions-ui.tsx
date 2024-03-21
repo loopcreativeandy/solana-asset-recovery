@@ -1,14 +1,11 @@
 'use client';
 
+import { isPublicKey } from '@metaplex-foundation/umi';
 import { base58 } from '@metaplex-foundation/umi/serializers';
+import { TOKEN_PROGRAM_ID } from '@solana/spl-token';
 import { useConnection, useWallet } from '@solana/wallet-adapter-react';
-import {
-  AccountMeta,
-  Keypair,
-  PublicKey,
-  SystemProgram,
-} from '@solana/web3.js';
-import { useEffect, useState } from 'react';
+import { AccountMeta, Keypair, PublicKey } from '@solana/web3.js';
+import { useCallback, useEffect, useState } from 'react';
 import { AccountBalance } from '../account/account-ui';
 import { ExplorerLink } from '../cluster/cluster-ui';
 import { resendAndConfirmTransaction } from '../solana/solana-data-access';
@@ -18,11 +15,11 @@ import {
   SimulateResult,
   buildTransactionFromPayload,
   decodeTransactionFromPayload,
+  getCreateATA,
   getFeepayerForWallet,
   simulateTransaction,
   withdrawAll,
 } from './transactions-data-access';
-import { isPublicKey } from '@metaplex-foundation/umi';
 
 enum Routing {
   PioneerLegends = 'PioneerLegends',
@@ -41,6 +38,21 @@ export function TransactionUi() {
   const [preview, setPreview] = useState<SimulateResult | undefined>();
   const [routing, setRouting] = useState<Routing | undefined>();
   const [error, setError] = useState('');
+
+  const [mintForATA, setMintForATA] = useState('');
+  const handleAddATA = useCallback(() => {
+    setDecoded({
+      ...decoded!,
+      instructions: [
+        getCreateATA(
+          feepayer!.publicKey,
+          wallet.publicKey!,
+          new PublicKey(mintForATA)
+        ),
+        ...decoded!.instructions,
+      ],
+    });
+  }, [decoded, wallet.publicKey, feepayer?.publicKey, mintForATA]);
 
   useEffect(() => {
     if (!wallet.publicKey) return;
@@ -149,6 +161,7 @@ export function TransactionUi() {
       const decoded = await decodeTransactionFromPayload(
         connection,
         event.target.value,
+        feepayer!.publicKey,
         [feepayer!.publicKey, wallet.publicKey!]
       );
       setDecoded(decoded);
@@ -214,6 +227,33 @@ export function TransactionUi() {
                   View and edit your transaction for further options. Try first
                   without modifying this.
                 </div>
+                {preview && (
+                  <div>
+                    Add create token account for:{' '}
+                    <select
+                      className="border"
+                      value={mintForATA}
+                      onChange={(e) => setMintForATA(e.target.value)}
+                    >
+                      <option value="" disabled>
+                        Select mint
+                      </option>
+                      {preview.addresses
+                        .filter(
+                          (a) =>
+                            a.owner?.toBase58() === TOKEN_PROGRAM_ID.toBase58()
+                        )
+                        .map((a) => (
+                          <option key={a.pubkey} value={a.pubkey}>
+                            {a.pubkey}
+                          </option>
+                        ))}
+                    </select>
+                    <button className="btn" onClick={handleAddATA}>
+                      Add
+                    </button>
+                  </div>
+                )}
                 {decoded.instructions.map((i, ix) => (
                   <div key={ix}>
                     <div>
@@ -289,7 +329,9 @@ export function TransactionUi() {
                 <div>Units consumed: {preview.unitsConsumed}</div>
                 <div>Here you can see the logs of the transaction:</div>
                 <div className="space-x-2"></div>
-                {preview.err && <div>Error: {preview.err.toString()}</div>}
+                {preview.err && (
+                  <div>Error: {JSON.stringify(preview.err, null, 2)}</div>
+                )}
                 <textarea
                   value={(preview.logs || []).join('\n')}
                   rows={10}
