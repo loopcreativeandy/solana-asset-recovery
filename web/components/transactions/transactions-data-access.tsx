@@ -60,25 +60,26 @@ export async function decodeTransactionFromPayload(
   feePayer: PublicKey,
   defaultSigners: PublicKey[]
 ): Promise<DecodedTransaction> {
-  let decodedMessage: Uint8Array;
+  let isVersionedTx: number;
+  let serialTx: Uint8Array;
   try {
-    decodedMessage = bs58.decode(payload);
+    const decodedMessage = bs58.decode(payload);
+    isVersionedTx = decodedMessage[0] & 128;
+    const emptySignature = new Uint8Array(1 + 64);
+    emptySignature[0] = 1;
+
+    serialTx = new Uint8Array(emptySignature.length + decodedMessage.length);
+    serialTx.set(emptySignature, 0),
+      serialTx.set(decodedMessage, emptySignature.length);
   } catch (err: any) {
-    decodedMessage = base64.serialize(payload);
+    serialTx = base64.serialize(payload);
+    isVersionedTx = serialTx[0] & 128;
   }
-  const emptySignature = new Uint8Array(1 + 64);
-  emptySignature[0] = 1;
 
-  const serialTx = new Uint8Array(
-    emptySignature.length + decodedMessage.length
-  );
-  serialTx.set(emptySignature, 0),
-    serialTx.set(decodedMessage, emptySignature.length);
-
-  const isVersionedTx = decodedMessage[0] & 128;
   let decoded: DecodedTransaction;
   if (isVersionedTx) {
     console.log('building versioned transaction');
+    VersionedTransaction.deserialize(serialTx);
     let byteArray = [...serialTx];
     const signatures = [];
     const signaturesLength = decodeLength(byteArray);
