@@ -73,7 +73,8 @@ export async function decodeTransactionFromPayload(
       serialTx.set(decodedMessage, emptySignature.length);
   } catch (err: any) {
     serialTx = base64.serialize(payload);
-    isVersionedTx = serialTx[0] & 128;
+    const signers = serialTx[0];
+    isVersionedTx = serialTx[1+signers*64] & 128;
   }
 
   let decoded: DecodedTransaction;
