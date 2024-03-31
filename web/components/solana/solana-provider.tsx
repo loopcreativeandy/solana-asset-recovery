@@ -26,7 +26,13 @@ export const WalletButton = dynamic(
   { ssr: false }
 );
 
-export function SolanaProvider({ children }: { children: ReactNode }) {
+export function SolanaProvider({
+  children,
+  localStorageKey,
+}: {
+  children: ReactNode;
+  localStorageKey?: string;
+}) {
   const { cluster } = useCluster();
   const endpoint = useMemo(() => cluster.endpoint, [cluster]);
   const wallets = useMemo(
@@ -44,7 +50,12 @@ export function SolanaProvider({ children }: { children: ReactNode }) {
 
   return (
     <ConnectionProvider endpoint={endpoint}>
-      <WalletProvider wallets={wallets} onError={onError} autoConnect={true}>
+      <WalletProvider
+        wallets={wallets}
+        onError={onError}
+        autoConnect={true}
+        localStorageKey={localStorageKey}
+      >
         <WalletModalProvider>{children}</WalletModalProvider>
       </WalletProvider>
     </ConnectionProvider>

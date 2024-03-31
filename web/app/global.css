@@ -17,3 +17,7 @@ body {
 .wallet-adapter-button {
   font-family: inherit !important;
 }
+.wallet-adapter-dropdown-list {
+  top: -0.5rem;
+  transform: translateY(-100%);
+}

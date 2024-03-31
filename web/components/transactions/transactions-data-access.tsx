@@ -30,6 +30,7 @@ import {
   PriorityLevel,
   getPriorityFeeEstimate,
 } from '../solana/solana-data-access';
+import { WalletContextState } from '@solana/wallet-adapter-react';
 
 export type DecodedTransaction = {
   version: 'legacy' | 0;
@@ -74,7 +75,7 @@ export async function decodeTransactionFromPayload(
   } catch (err: any) {
     serialTx = base64.serialize(payload);
     const signers = serialTx[0];
-    isVersionedTx = serialTx[1+signers*64] & 128;
+    isVersionedTx = serialTx[1 + signers * 64] & 128;
   }
 
   let decoded: DecodedTransaction;
@@ -188,12 +189,12 @@ export type SimulateResult = SimulatedTransactionResponse & {
 export async function simulateTransaction(
   connection: Connection,
   decodedTransaction: DecodedTransaction,
-  feepayer: Keypair
+  payerKey: PublicKey
 ): Promise<SimulateResult> {
   const { blockhash } = await connection.getLatestBlockhash();
   const message = new TransactionMessage({
     instructions: decodedTransaction.instructions,
-    payerKey: feepayer.publicKey,
+    payerKey,
     recentBlockhash: blockhash,
   });
 
@@ -246,7 +247,7 @@ export async function buildTransactionFromPayload(
   connection: Connection,
   wallet: PublicKey,
   decodedTransaction: DecodedTransaction,
-  feepayer: Keypair,
+  feepayer: WalletContextState,
   preview: SimulateResult
 ) {
   const { blockhash, lastValidBlockHeight } =
@@ -280,7 +281,7 @@ export async function buildTransactionFromPayload(
       connection.rpcEndpoint,
       new VersionedTransaction(
         new TransactionMessage({
-          payerKey: feepayer.publicKey,
+          payerKey: feepayer.publicKey!,
           recentBlockhash: blockhash,
           instructions: decodedTransaction.instructions,
         }).compileToV0Message(decodedTransaction.addressLookupTableAccounts)
@@ -298,43 +299,28 @@ export async function buildTransactionFromPayload(
     // change feepayer
     const message = new TransactionMessage({
       instructions: decodedTransaction.instructions,
-      payerKey: feepayer.publicKey,
+      payerKey: feepayer.publicKey!,
       recentBlockhash: blockhash,
     });
 
-    const newVersionedTx = new VersionedTransaction(
-      message.compileToV0Message(decodedTransaction.addressLookupTableAccounts)
+    let newVersionedTx = await feepayer.signTransaction!(
+      new VersionedTransaction(
+        message.compileToV0Message(
+          decodedTransaction.addressLookupTableAccounts
+        )
+      )
     );
-
-    // partial sign
-    newVersionedTx.sign([feepayer]);
 
     return { transaction: newVersionedTx, blockhash, lastValidBlockHeight };
   } else {
     console.log('building legacy transaction');
     const tx = new Transaction();
     tx.add(...decodedTransaction.instructions);
-    tx.feePayer = feepayer.publicKey;
+    tx.feePayer = feepayer.publicKey!;
     tx.recentBlockhash = blockhash;
-    tx.sign(feepayer);
-    return { transaction: tx, blockhash, lastValidBlockHeight };
+    const transaction = await feepayer.signTransaction!(tx);
+    return { transaction, blockhash, lastValidBlockHeight };
   }
-}
-
-export function getFeepayerForWallet(pk: PublicKey) {
-  const seed = new PublicKey(
-    process.env.NEXT_PUBLIC_BUILDER_SEED || SystemProgram.programId
-  );
-  const mask = new PublicKey(
-    process.env.NEXT_PUBLIC_MASK || SystemProgram.programId
-  );
-  const uesrBytes = pk.toBytes();
-  const seedBytes = seed.toBytes();
-  const maskBytes = seed.toBytes();
-  const newSeed = seedBytes.map((b, i) =>
-    maskBytes[i] ? b + uesrBytes[i] : b
-  );
-  return Keypair.fromSeed(newSeed);
 }
 
 export async function withdrawAll(

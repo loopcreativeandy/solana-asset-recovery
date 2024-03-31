@@ -1,5 +1,6 @@
 'use client';
 
+import { TOKEN_PROGRAM_ID } from '@solana/spl-token';
 import { useWallet } from '@solana/wallet-adapter-react';
 import {
   AccountInfo,
@@ -9,12 +10,13 @@ import {
 } from '@solana/web3.js';
 import { IconRefresh } from '@tabler/icons-react';
 import { useQueryClient } from '@tanstack/react-query';
-import { useMemo, useState } from 'react';
-import { AppModal, ellipsify } from '../ui/ui-layout';
+import { useCallback, useMemo, useState } from 'react';
 import { useCluster } from '../cluster/cluster-data-access';
 import { ExplorerLink } from '../cluster/cluster-ui';
+import { useFeePayerContext } from '../fee-payer/fee-payer.provider';
+import { AppModal, ellipsify } from '../ui/ui-layout';
 import {
-  useGetBalance,
+  useGetAccount,
   useGetNfts,
   useGetSignatures,
   useGetStakeAccounts,
@@ -25,11 +27,11 @@ import {
   useWalletBrick,
   useWalletRecovery,
   useWalletStakeRecovery,
+  useWalletUnbrick,
 } from './account-data-access';
-import { TOKEN_PROGRAM_ID } from '@solana/spl-token';
 
 export function AccountBalance({ address }: { address: PublicKey }) {
-  const query = useGetBalance({ address });
+  const query = useGetAccount({ address });
 
   return (
     <div>
@@ -37,7 +39,7 @@ export function AccountBalance({ address }: { address: PublicKey }) {
         className="text-xl font-bold cursor-pointer"
         onClick={() => query.refetch()}
       >
-        {query.data ? <BalanceSol balance={query.data} /> : '...'} SOL
+        {query.data ? <BalanceSol balance={query.data.lamports} /> : '...'} SOL
       </h1>
     </div>
   );
@@ -52,12 +54,12 @@ export function AccountChecker() {
 export function AccountBalanceCheck({ address }: { address: PublicKey }) {
   const { cluster } = useCluster();
   const mutation = useRequestAirdrop({ address });
-  const query = useGetBalance({ address });
+  const query = useGetAccount({ address });
 
   if (query.isLoading) {
     return null;
   }
-  if (query.isError || !query.data) {
+  if (query.isError || !query.data?.lamports) {
     return (
       <div className="alert alert-warning text-warning-content/80 rounded-none flex justify-center">
         <span>
@@ -78,13 +80,22 @@ export function AccountBalanceCheck({ address }: { address: PublicKey }) {
   return null;
 }
 
-export function AccountButtons({ address }: { address: PublicKey }) {
+export function AccountButtons({
+  address,
+  canBrick,
+  canUnbrick,
+}: {
+  address: PublicKey;
+  canBrick: boolean;
+  canUnbrick: boolean;
+}) {
   const wallet = useWallet();
   const { cluster } = useCluster();
   const [showAirdropModal, setShowAirdropModal] = useState(false);
   const [showReceiveModal, setShowReceiveModal] = useState(false);
   const [showSendModal, setShowSendModal] = useState(false);
   const [showBrickModal, setShowBrickModal] = useState(false);
+  const [showUnbrickModal, setShowUnbrickModal] = useState(false);
 
   return (
     <div>
@@ -103,10 +114,10 @@ export function AccountButtons({ address }: { address: PublicKey }) {
         show={showSendModal}
         hide={() => setShowSendModal(false)}
       />
-      <ModalBrick
-        address={address}
-        show={showBrickModal}
-        hide={() => setShowBrickModal(false)}
+      <ModalBrick show={showBrickModal} hide={() => setShowBrickModal(false)} />
+      <ModalUnbrick
+        show={showUnbrickModal}
+        hide={() => setShowUnbrickModal(false)}
       />
       <div className="space-x-2">
         <button
@@ -129,27 +140,28 @@ export function AccountButtons({ address }: { address: PublicKey }) {
         >
           Receive
         </button>
-        <button
-          className="btn btn-xs lg:btn-md btn-outline"
-          onClick={() => setShowBrickModal(true)}
-        >
-          Brick
-        </button>
+        {canBrick && (
+          <button
+            className="btn btn-xs lg:btn-md btn-outline"
+            onClick={() => setShowBrickModal(true)}
+          >
+            Brick
+          </button>
+        )}
+        {canUnbrick && (
+          <button
+            className="btn btn-xs lg:btn-md btn-outline"
+            onClick={() => setShowUnbrickModal(true)}
+          >
+            Unbrick
+          </button>
+        )}
       </div>
     </div>
   );
 }
 
 export function AccountTokens({ address }: { address: PublicKey }) {
-  const [showRecoveryModal, setShowRecoveryModal] = useState(false);
-  const [accountsToClose, setAccountsToClose] = useState(
-    undefined as
-      | {
-          pubkey: PublicKey;
-          account: AccountInfo<ParsedAccountData>;
-        }
-      | undefined
-  );
   const [showAll, setShowAll] = useState(false);
   const query = useGetTokenAccounts({ address });
   const client = useQueryClient();
@@ -158,14 +170,24 @@ export function AccountTokens({ address }: { address: PublicKey }) {
     return query.data?.slice(0, 5);
   }, [query.data, showAll]);
 
+  const mutation = useWalletRecovery({ address });
+  const feePayer = useFeePayerContext();
+  const handleRecover = useCallback(
+    async (accounts: {
+      pubkey: PublicKey;
+      account: AccountInfo<ParsedAccountData>;
+    }) => {
+      await mutation.mutateAsync({
+        destination: feePayer.publicKey!,
+        accounts,
+      });
+      query.refetch();
+    },
+    [mutation, query]
+  );
+
   return (
     <div className="space-y-2">
-      <ModalRecovery
-        address={address}
-        show={showRecoveryModal}
-        hide={() => setShowRecoveryModal(false)}
-        accounts={accountsToClose}
-      />
       <div className="justify-between">
         <div className="flex justify-between">
           <h2 className="text-2xl font-bold">Token Accounts</h2>
@@ -239,12 +261,12 @@ export function AccountTokens({ address }: { address: PublicKey }) {
                     <td className="text-right">
                       <button
                         className="btn btn-xs btn-outline"
+                        disabled={mutation.isPending}
                         onClick={() => {
-                          setAccountsToClose({
+                          handleRecover({
                             pubkey: pubkey,
                             account: account,
                           });
-                          setShowRecoveryModal(true);
                         }}
                       >
                         Recover
@@ -275,15 +297,6 @@ export function AccountTokens({ address }: { address: PublicKey }) {
 }
 
 export function AccountNFTs({ address }: { address: PublicKey }) {
-  const [showRecoveryModal, setShowRecoveryModal] = useState(false);
-  const [accountsToClose, setAccountsToClose] = useState(
-    undefined as
-      | {
-          pubkey: PublicKey;
-          account: AccountInfo<ParsedAccountData>;
-        }
-      | undefined
-  );
   const [showAll, setShowAll] = useState(false);
   const query = useGetNfts({ address });
   const client = useQueryClient();
@@ -292,14 +305,24 @@ export function AccountNFTs({ address }: { address: PublicKey }) {
     return query.data?.slice(0, 12) || [];
   }, [query.data, showAll]);
 
+  const mutation = useWalletRecovery({ address });
+  const feePayer = useFeePayerContext();
+  const handleRecover = useCallback(
+    async (accounts: {
+      pubkey: PublicKey;
+      account: AccountInfo<ParsedAccountData>;
+    }) => {
+      await mutation.mutateAsync({
+        destination: feePayer.publicKey!,
+        accounts,
+      });
+      query.refetch();
+    },
+    [mutation, query]
+  );
+
   return (
     <div className="space-y-2">
-      <ModalRecovery
-        address={address}
-        show={showRecoveryModal}
-        hide={() => setShowRecoveryModal(false)}
-        accounts={accountsToClose}
-      />
       <div className="justify-between">
         <div className="flex justify-between">
           <h2 className="text-2xl font-bold">NFTs</h2>
@@ -357,8 +380,9 @@ export function AccountNFTs({ address }: { address: PublicKey }) {
                   ) : (
                     <button
                       className="btn btn-xs btn-outline"
+                      disabled={mutation.isPending}
                       onClick={() => {
-                        setAccountsToClose({
+                        handleRecover({
                           pubkey: new PublicKey(
                             (n as any).token_info.associated_token_address
                           ),
@@ -384,7 +408,6 @@ export function AccountNFTs({ address }: { address: PublicKey }) {
                             owner: TOKEN_PROGRAM_ID,
                           },
                         });
-                        setShowRecoveryModal(true);
                       }}
                     >
                       Recover
@@ -412,15 +435,6 @@ export function AccountNFTs({ address }: { address: PublicKey }) {
 }
 
 export function AccountStakeAccounts({ address }: { address: PublicKey }) {
-  const [showRecoveryModal, setShowRecoveryModal] = useState(false);
-  const [accountsToClose, setAccountsToClose] = useState(
-    undefined as
-      | {
-          pubkey: PublicKey;
-          account: AccountInfo<ParsedAccountData>;
-        }
-      | undefined
-  );
   const [showAll, setShowAll] = useState(false);
   const query = useGetStakeAccounts({ address });
   const client = useQueryClient();
@@ -429,14 +443,22 @@ export function AccountStakeAccounts({ address }: { address: PublicKey }) {
     return query.data?.slice(0, 5);
   }, [query.data, showAll]);
 
+  const mutation = useWalletStakeRecovery({ address });
+  const handleRecover = useCallback(
+    async (accounts: {
+      pubkey: PublicKey;
+      account: AccountInfo<ParsedAccountData>;
+    }) => {
+      await mutation.mutateAsync({
+        accounts,
+      });
+      query.refetch();
+    },
+    [mutation, query]
+  );
+
   return (
     <div className="space-y-2">
-      <ModalStakeRecovery
-        address={address}
-        show={showRecoveryModal}
-        hide={() => setShowRecoveryModal(false)}
-        accounts={accountsToClose}
-      />
       <div className="justify-between">
         <div className="flex justify-between">
           <h2 className="text-2xl font-bold">Stake Accounts</h2>
@@ -512,12 +534,12 @@ export function AccountStakeAccounts({ address }: { address: PublicKey }) {
                     <td className="text-right">
                       <button
                         className="btn btn-xs btn-outline"
+                        disabled={mutation.isPending}
                         onClick={() => {
-                          setAccountsToClose({
+                          handleRecover({
                             pubkey: pubkey,
                             account: account,
                           });
-                          setShowRecoveryModal(true);
                         }}
                       >
                         Recover
@@ -770,154 +792,57 @@ function ModalSend({
   );
 }
 
-function ModalBrick({
-  hide,
-  show,
-  address,
-}: {
-  hide: () => void;
-  show: boolean;
-  address: PublicKey;
-}) {
-  const wallet = useWallet();
-  const mutation = useWalletBrick({ address });
-  const [destination, setDestination] = useState('');
-
-  if (!address || !wallet.sendTransaction) {
-    return <div>Wallet not connected</div>;
-  }
+function ModalBrick({ hide, show }: { hide: () => void; show: boolean }) {
+  const feePayer = useFeePayerContext();
+  const mutation = useWalletBrick();
 
   return (
     <AppModal
       hide={hide}
       show={show}
       title="Brick"
-      submitDisabled={!destination || mutation.isPending}
+      submitDisabled={mutation.isPending}
       submitLabel="Brick"
       submit={() => {
-        mutation
-          .mutateAsync({
-            attacker: new PublicKey(destination),
-          })
-          .then(() => hide());
+        mutation.mutateAsync().then(() => hide());
       }}
     >
-      <input
-        disabled={mutation.isPending}
-        type="text"
-        placeholder="Let's brick this wallet"
-        className="input input-bordered w-full"
-        value={destination}
-        onChange={(e) => setDestination(e.target.value)}
-      />
+      <div className="text-red-600">
+        Be careful! This will make your wallet unusable, only use if your seed
+        or private wallet was leaked and you don't want others might able to use
+        it on certain websites.
+      </div>
+      <div>
+        You will only be able to unbrick it with your safe wallet{' '}
+        <b>
+          <ExplorerLink
+            path={`/account/${feePayer.publicKey?.toBase58()}`}
+            label={ellipsify(feePayer.publicKey?.toBase58())}
+          />
+        </b>
+      </div>
     </AppModal>
   );
 }
 
-function ModalRecovery({
-  hide,
-  show,
-  address,
-  accounts,
-}: {
-  hide: () => void;
-  show: boolean;
-  address: PublicKey;
-  accounts:
-    | { pubkey: PublicKey; account: AccountInfo<ParsedAccountData> }
-    | undefined;
-}) {
-  if (!accounts) {
-    console.log('Account(s) to recover not specified');
-    return;
-  }
-  const wallet = useWallet();
-  const mutation = useWalletRecovery({ address, accounts });
-  const [destination, setDestination] = useState('');
-
-  if (!address || !wallet.sendTransaction) {
-    return <div>Wallet not connected</div>;
-  }
+function ModalUnbrick({ hide, show }: { hide: () => void; show: boolean }) {
+  const mutation = useWalletUnbrick();
 
   return (
     <AppModal
       hide={hide}
       show={show}
-      title="Recover Tokens"
-      submitDisabled={!destination || mutation.isPending}
-      submitLabel="Recover"
+      title="Unbrick"
+      submitDisabled={mutation.isPending}
+      submitLabel="Unbrick"
       submit={() => {
-        console.log('submiting ' + accounts);
-        mutation
-          .mutateAsync({
-            destination: new PublicKey(destination),
-            accounts,
-          })
-          .then(() => hide());
+        mutation.mutateAsync().then(() => hide());
       }}
     >
-      <input
-        disabled={mutation.isPending}
-        type="text"
-        placeholder="Enter new wallet address (make sure you own this one!)"
-        className="input input-bordered w-full"
-        value={destination}
-        onChange={(e) => setDestination(e.target.value)}
-      />
-    </AppModal>
-  );
-}
-
-function ModalStakeRecovery({
-  hide,
-  show,
-  address,
-  accounts,
-}: {
-  hide: () => void;
-  show: boolean;
-  address: PublicKey;
-  accounts:
-    | { pubkey: PublicKey; account: AccountInfo<ParsedAccountData> }
-    | undefined;
-}) {
-  if (!accounts) {
-    console.log('Account(s) to recover not specified');
-    return;
-  }
-  const wallet = useWallet();
-  const mutation = useWalletStakeRecovery({ address, accounts });
-  const [destination, setDestination] = useState('');
-
-  if (!address || !wallet.sendTransaction) {
-    return <div>Wallet not connected</div>;
-  }
-
-  return (
-    <AppModal
-      hide={hide}
-      show={show}
-      title="Recover Tokens"
-      submitDisabled={!destination || mutation.isPending}
-      submitLabel="Recover"
-      submit={() => {
-        console.log('submiting ' + accounts);
-        mutation
-          .mutateAsync({
-            destination: new PublicKey(destination),
-            accounts,
-          })
-          .then(() => hide());
-      }}
-    >
-      <input
-        disabled={mutation.isPending}
-        type="text"
-        placeholder="Enter new wallet address (make sure you own this one!)"
-        className="input input-bordered w-full"
-        value={destination}
-        onChange={(e) => setDestination(e.target.value)}
-      />
+      <div className="text-red-600">
+        This will make your wallet usable again. If your seed or private wallet
+        was leaked, others would be able to use it on certain websites.
+      </div>
     </AppModal>
   );
 }
