@@ -29,11 +29,9 @@ export default function AccountDetailFeature() {
     }
     try {
       return new PublicKey(params.address);
-    } catch (e) {
-      console.log(`Invalid public key`, e);
-    }
+    } catch (e) {}
   }, [params]);
-  const query = useGetAccount({ address: address! });
+  const query = useGetAccount({ address });
   const brickInfo = useMemo(
     () =>
       query.data && query.data.owner.toBase58() === TOKEN_PROGRAM_ID.toBase58()
@@ -60,8 +58,8 @@ export default function AccountDetailFeature() {
         subtitle={
           <div className="my-4">
             <ExplorerLink
-              path={`account/${address}`}
-              label={ellipsify(address.toString())}
+              path={`account/${address.toBase58()}`}
+              label={ellipsify(address.toBase58().toString())}
             />
           </div>
         }

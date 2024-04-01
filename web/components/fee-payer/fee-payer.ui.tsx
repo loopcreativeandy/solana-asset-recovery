@@ -1,3 +1,5 @@
+'use client';
+
 import { OutPortal } from 'react-reverse-portal';
 import { useFeePayerContext, useFeePayerUIContext } from './fee-payer.provider';
 import { useWallet } from '@solana/wallet-adapter-react';
@@ -12,7 +14,7 @@ export function FeePayerWalletButton() {
 
   return (
     <>
-      <OutPortal node={portalNode} />
+      {portalNode && <OutPortal node={portalNode} />}
       {feePayer.publicKey?.toBase58() === wallet.publicKey?.toBase58() ? (
         <div className="text-red-600">
           You need to connect different wallets

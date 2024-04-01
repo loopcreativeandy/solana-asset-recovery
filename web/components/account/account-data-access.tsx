@@ -60,12 +60,13 @@ import {
 } from '../solana/solana-data-access';
 import { useTransactionToast } from '../ui/ui-layout';
 
-export function useGetAccount({ address }: { address: PublicKey }) {
+export function useGetAccount({ address }: { address?: PublicKey }) {
   const { connection } = useConnection();
 
   return useQuery({
     queryKey: ['get-account', { endpoint: connection.rpcEndpoint, address }],
-    queryFn: () => connection.getAccountInfo(address),
+    queryFn: () =>
+      address ? connection.getAccountInfo(address) : Promise.resolve(null),
   });
 }
 
