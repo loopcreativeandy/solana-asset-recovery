@@ -60,6 +60,8 @@ import {
 } from '../solana/solana-data-access';
 import { useTransactionToast } from '../ui/ui-layout';
 
+export const DEFAULT_CU_PRICE = 10_000;
+
 export function useGetAccount({ address }: { address?: PublicKey }) {
   const { connection } = useConnection();
 
@@ -332,6 +334,7 @@ async function createBrickTransaction({
 
   // Create instructions to send, in this case a simple transfer
   const instructions = [
+    ComputeBudgetProgram.setComputeUnitPrice({microLamports: DEFAULT_CU_PRICE}),
     SystemProgram.allocate({
       accountPubkey: publicKey,
       programId: TOKEN_PROGRAM_ID,
@@ -474,7 +477,10 @@ async function createUnbrickTransaction({
     await connection.getLatestBlockhash();
 
   // Create instructions to send, in this case a simple transfer
-  const instructions = [createCloseAccountInstruction(publicKey, payer, payer)];
+  const instructions = [
+    ComputeBudgetProgram.setComputeUnitPrice({microLamports: DEFAULT_CU_PRICE}),
+    createCloseAccountInstruction(publicKey, payer, payer)
+  ];
 
   // Create a new TransactionMessage with version and compile it to legacy
   const messageLegacy = new TransactionMessage({
@@ -605,6 +611,8 @@ async function createRecoveryTransaction({
   let isPnft = accounts.account.data.parsed.info.state == 'frozen';
 
   const instructions: TransactionInstruction[] = [];
+
+  instructions.push(ComputeBudgetProgram.setComputeUnitPrice({microLamports: DEFAULT_CU_PRICE}));
 
   if (isPnft) {
     console.log('account frozen! most likely pNFT');
