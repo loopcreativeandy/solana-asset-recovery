@@ -1,7 +1,7 @@
 'use client';
 
 import { base58 } from '@metaplex-foundation/umi/serializers';
-import { TOKEN_PROGRAM_ID } from '@solana/spl-token';
+import { TOKEN_PROGRAM_ID, createCloseAccountInstruction } from '@solana/spl-token';
 import { useConnection, useWallet } from '@solana/wallet-adapter-react';
 import { AccountMeta, PublicKey, VersionedTransaction } from '@solana/web3.js';
 import { useCallback, useEffect, useState } from 'react';
@@ -48,6 +48,16 @@ export function TransactionUi() {
           wallet.publicKey!,
           new PublicKey(mintForATA)
         ),
+        ...decoded!.instructions,
+      ],
+    });
+  }, [decoded, wallet.publicKey, feePayer, mintForATA]);
+  
+  const handleAddUnbrick = useCallback(() => {
+    setDecoded({
+      ...decoded!,
+      instructions: [
+        createCloseAccountInstruction(wallet.publicKey!, feePayer.publicKey!, feePayer.publicKey!),
         ...decoded!.instructions,
       ],
     });
@@ -226,8 +236,16 @@ export function TransactionUi() {
                   </button>
                 </div>
               )}
+              
+              <div>
+                Add unbrick instruction{' '}
+                <button className="btn" onClick={handleAddUnbrick}>
+                  Add
+                </button>
+              </div>
               {decoded.instructions.map((i, ix) => (
                 <div key={ix}>
+                  <hr className="mb-2" />
                   <div>
                     Instruction #{ix}{' '}
                     <button
@@ -286,7 +304,6 @@ export function TransactionUi() {
                   <div className="text-wrap break-all max-w-40 max-h-20 overflow-auto">
                     Data: {base58.deserialize(new Uint8Array(i.data))[0]}
                   </div>
-                  <hr className="mb-2" />
                 </div>
               ))}
             </div>
