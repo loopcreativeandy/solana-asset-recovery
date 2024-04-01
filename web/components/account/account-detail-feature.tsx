@@ -83,8 +83,10 @@ export default function AccountDetailFeature() {
           <AccountButtons
             address={address}
             canBrick={
-              query.data?.owner.toBase58() ===
-              SystemProgram.programId.toBase58()
+              query.isFetched &&
+              (!query.data ||
+                query.data?.owner.toBase58() ===
+                  SystemProgram.programId.toBase58())
             }
             canUnbrick={
               brickInfo?.owner.toBase58() === feePayer.publicKey?.toBase58()
