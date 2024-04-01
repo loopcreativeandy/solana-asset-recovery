@@ -3,6 +3,7 @@ import { UiLayout } from '@/components/ui/ui-layout';
 import { ClusterProvider } from '@/components/cluster/cluster-data-access';
 import { SolanaProvider } from '@/components/solana/solana-provider';
 import { Provider } from './provider';
+import { FeePayerProvider } from '@/components/fee-payer/fee-payer.provider';
 
 export const metadata = {
   title: 'recovery tool',
@@ -19,9 +20,11 @@ export default function RootLayout({
       <body>
         <Provider>
           <ClusterProvider>
-            <SolanaProvider>
-              <UiLayout>{children}</UiLayout>
-            </SolanaProvider>
+            <FeePayerProvider>
+              <SolanaProvider>
+                <UiLayout>{children}</UiLayout>
+              </SolanaProvider>
+            </FeePayerProvider>
           </ClusterProvider>
         </Provider>
       </body>

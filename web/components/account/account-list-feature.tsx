@@ -15,7 +15,10 @@ export default function AccountListFeature() {
   return (
     <div className="hero py-[64px]">
       <div className="hero-content text-center">
-        <WalletButton />
+        <div className="flex gap-2 items-center justify-center">
+          <h2 className="text-xl font-bold">Compromised wallet:</h2>
+          <WalletButton />
+        </div>
       </div>
     </div>
   );

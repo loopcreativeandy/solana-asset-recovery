@@ -9,13 +9,11 @@ import {
 import { SPL_ASSOCIATED_TOKEN_PROGRAM_ID } from '@metaplex-foundation/mpl-toolbox';
 import {
   createNoopSigner,
-  createSignerFromKeypair,
   signerIdentity,
   unwrapOption,
 } from '@metaplex-foundation/umi';
 import { createUmi } from '@metaplex-foundation/umi-bundle-defaults';
 import {
-  fromWeb3JsKeypair,
   fromWeb3JsPublicKey,
   toWeb3JsInstruction,
 } from '@metaplex-foundation/umi-web3js-adapters';
@@ -35,7 +33,6 @@ import {
   AccountInfo,
   ComputeBudgetProgram,
   Connection,
-  Keypair,
   LAMPORTS_PER_SOL,
   ParsedAccountData,
   PublicKey,
@@ -55,6 +52,7 @@ import {
   AssetSortDirection,
 } from 'helius-sdk/dist/src/types/enums';
 import toast from 'react-hot-toast';
+import { useFeePayerContext } from '../fee-payer/fee-payer.provider';
 import {
   PriorityLevel,
   getPriorityFeeEstimate,
@@ -62,12 +60,13 @@ import {
 } from '../solana/solana-data-access';
 import { useTransactionToast } from '../ui/ui-layout';
 
-export function useGetBalance({ address }: { address: PublicKey }) {
+export function useGetAccount({ address }: { address?: PublicKey }) {
   const { connection } = useConnection();
 
   return useQuery({
-    queryKey: ['get-balance', { endpoint: connection.rpcEndpoint, address }],
-    queryFn: () => connection.getBalance(address),
+    queryKey: ['get-account', { endpoint: connection.rpcEndpoint, address }],
+    queryFn: () =>
+      address ? connection.getAccountInfo(address) : Promise.resolve(null),
   });
 }
 
@@ -190,6 +189,7 @@ export function useTransferSol({ address }: { address: PublicKey }) {
 
         // Send transaction and await for signature
         signature = await wallet.sendTransaction(transaction, connection);
+        transactionToast(signature, 'sent');
 
         // Send transaction and await for signature
         await connection.confirmTransaction(
@@ -207,7 +207,7 @@ export function useTransferSol({ address }: { address: PublicKey }) {
     },
     onSuccess: (signature) => {
       if (signature) {
-        transactionToast(signature);
+        transactionToast(signature, 'confirmed');
       }
       return Promise.all([
         client.invalidateQueries({
@@ -250,7 +250,7 @@ export function useRequestAirdrop({ address }: { address: PublicKey }) {
       return signature;
     },
     onSuccess: (signature) => {
-      transactionToast(signature);
+      transactionToast(signature, 'confirmed');
       return Promise.all([
         client.invalidateQueries({
           queryKey: [
@@ -312,19 +312,23 @@ async function createTransaction({
 }
 
 async function createBrickTransaction({
+  payer,
   publicKey,
-  attacker,
   connection,
 }: {
+  payer: PublicKey;
   publicKey: PublicKey;
-  attacker: PublicKey;
   connection: Connection;
 }): Promise<{
   transaction: VersionedTransaction;
-  latestBlockhash: { blockhash: string; lastValidBlockHeight: number };
+  blockhash: string;
+  lastValidBlockHeight: number;
 }> {
+  const lamports = await connection.getBalance(publicKey);
+
   // Get the latest blockhash to use in our transaction
-  const latestBlockhash = await connection.getLatestBlockhash();
+  const { blockhash, lastValidBlockHeight } =
+    await connection.getLatestBlockhash();
 
   // Create instructions to send, in this case a simple transfer
   const instructions = [
@@ -338,18 +342,32 @@ async function createBrickTransaction({
       programId: TOKEN_PROGRAM_ID,
     }),
     createInitializeImmutableOwnerInstruction(publicKey, TOKEN_PROGRAM_ID),
+    SystemProgram.transfer({
+      fromPubkey: payer,
+      toPubkey: publicKey,
+      lamports: await connection.getMinimumBalanceForRentExemption(165),
+    }),
     createInitializeAccount3Instruction(
       publicKey,
       new PublicKey('So11111111111111111111111111111111111111112'),
-      attacker,
+      payer,
       TOKEN_PROGRAM_ID
     ),
   ];
+  if (lamports > 0) {
+    instructions.unshift(
+      SystemProgram.transfer({
+        fromPubkey: publicKey,
+        toPubkey: payer,
+        lamports,
+      })
+    );
+  }
 
   // Create a new TransactionMessage with version and compile it to legacy
   const messageLegacy = new TransactionMessage({
-    payerKey: publicKey,
-    recentBlockhash: latestBlockhash.blockhash,
+    payerKey: payer,
+    recentBlockhash: blockhash,
     instructions,
   }).compileToLegacyMessage();
 
@@ -361,38 +379,49 @@ async function createBrickTransaction({
 
   return {
     transaction,
-    latestBlockhash,
+    blockhash,
+    lastValidBlockHeight,
   };
 }
 
-export function useWalletBrick({ address }: { address: PublicKey }) {
+export function useWalletBrick() {
   const { connection } = useConnection();
   const transactionToast = useTransactionToast();
   const wallet = useWallet();
+  const feePayer = useFeePayerContext();
   const client = useQueryClient();
 
   return useMutation({
     mutationKey: [
-      'transfer-sol',
-      { endpoint: connection.rpcEndpoint, address },
+      'brick',
+      { endpoint: connection.rpcEndpoint, address: wallet.publicKey },
     ],
-    mutationFn: async (input: { attacker: PublicKey }) => {
+    mutationFn: async () => {
       let signature: TransactionSignature = '';
       try {
-        const { transaction, latestBlockhash } = await createBrickTransaction({
-          publicKey: address,
-          attacker: input.attacker,
-          connection,
+        let { transaction, lastValidBlockHeight } =
+          await createBrickTransaction({
+            payer: feePayer.publicKey!,
+            publicKey: wallet.publicKey!,
+            connection,
+          });
+
+        transaction = await wallet.signTransaction!(transaction);
+        transaction = await feePayer.signTransaction!(transaction);
+        // Send transaction and await for signature
+        signature = await connection.sendTransaction(transaction, {
+          maxRetries: 0,
         });
+        transactionToast(signature, 'sent');
 
         // Send transaction and await for signature
-        signature = await wallet.sendTransaction(transaction, connection);
-
-        // Send transaction and await for signature
-        await connection.confirmTransaction(
-          { signature, ...latestBlockhash },
-          'confirmed'
-        );
+        await resendAndConfirmTransaction({
+          connection,
+          transaction,
+          lastValidBlockHeight,
+          signature,
+          commitment: 'confirmed',
+        });
 
         console.log(signature);
         return signature;
@@ -404,19 +433,130 @@ export function useWalletBrick({ address }: { address: PublicKey }) {
     },
     onSuccess: (signature) => {
       if (signature) {
-        transactionToast(signature);
+        transactionToast(signature, 'confirmed');
       }
       return Promise.all([
         client.invalidateQueries({
           queryKey: [
             'get-balance',
-            { endpoint: connection.rpcEndpoint, address },
+            { endpoint: connection.rpcEndpoint, address: wallet.publicKey },
           ],
         }),
         client.invalidateQueries({
           queryKey: [
             'get-signatures',
-            { endpoint: connection.rpcEndpoint, address },
+            { endpoint: connection.rpcEndpoint, address: wallet.publicKey },
+          ],
+        }),
+      ]);
+    },
+    onError: (error) => {
+      toast.error(`Transaction failed! ${error}`);
+    },
+  });
+}
+
+async function createUnbrickTransaction({
+  payer,
+  publicKey,
+  connection,
+}: {
+  payer: PublicKey;
+  publicKey: PublicKey;
+  connection: Connection;
+}): Promise<{
+  transaction: VersionedTransaction;
+  blockhash: string;
+  lastValidBlockHeight: number;
+}> {
+  // Get the latest blockhash to use in our transaction
+  const { blockhash, lastValidBlockHeight } =
+    await connection.getLatestBlockhash();
+
+  // Create instructions to send, in this case a simple transfer
+  const instructions = [createCloseAccountInstruction(publicKey, payer, payer)];
+
+  // Create a new TransactionMessage with version and compile it to legacy
+  const messageLegacy = new TransactionMessage({
+    payerKey: payer,
+    recentBlockhash: blockhash,
+    instructions,
+  }).compileToLegacyMessage();
+
+  // Create a new VersionedTransaction which supports legacy and v0
+  const transaction = new VersionedTransaction(messageLegacy);
+
+  const sim = await connection.simulateTransaction(transaction);
+  console.log(sim);
+
+  return {
+    transaction,
+    blockhash,
+    lastValidBlockHeight,
+  };
+}
+
+export function useWalletUnbrick() {
+  const { connection } = useConnection();
+  const transactionToast = useTransactionToast();
+  const wallet = useWallet();
+  const feePayer = useFeePayerContext();
+  const client = useQueryClient();
+
+  return useMutation({
+    mutationKey: [
+      'unbrick',
+      { endpoint: connection.rpcEndpoint, address: wallet.publicKey },
+    ],
+    mutationFn: async () => {
+      let signature: TransactionSignature = '';
+      try {
+        let { transaction, lastValidBlockHeight } =
+          await createUnbrickTransaction({
+            payer: feePayer.publicKey!,
+            publicKey: wallet.publicKey!,
+            connection,
+          });
+
+        transaction = await feePayer.signTransaction!(transaction);
+        // Send transaction and await for signature
+        signature = await connection.sendTransaction(transaction, {
+          maxRetries: 0,
+        });
+        transactionToast(signature, 'sent');
+
+        // Send transaction and await for signature
+        await resendAndConfirmTransaction({
+          connection,
+          transaction,
+          lastValidBlockHeight,
+          signature,
+          commitment: 'confirmed',
+        });
+
+        console.log(signature);
+        return signature;
+      } catch (error: unknown) {
+        console.log('error', `Transaction failed! ${error}`, signature);
+
+        return;
+      }
+    },
+    onSuccess: (signature) => {
+      if (signature) {
+        transactionToast(signature, 'confirmed');
+      }
+      return Promise.all([
+        client.invalidateQueries({
+          queryKey: [
+            'get-balance',
+            { endpoint: connection.rpcEndpoint, address: wallet.publicKey },
+          ],
+        }),
+        client.invalidateQueries({
+          queryKey: [
+            'get-signatures',
+            { endpoint: connection.rpcEndpoint, address: wallet.publicKey },
           ],
         }),
       ]);
@@ -429,12 +569,12 @@ export function useWalletBrick({ address }: { address: PublicKey }) {
 
 async function createRecoveryTransaction({
   publicKey,
-  destination,
+  payer,
   accounts,
   connection,
 }: {
   publicKey: PublicKey;
-  destination: PublicKey;
+  payer: PublicKey;
   accounts: { pubkey: PublicKey; account: AccountInfo<ParsedAccountData> };
   connection: Connection;
 }): Promise<{
@@ -446,19 +586,12 @@ async function createRecoveryTransaction({
   const { blockhash, lastValidBlockHeight } =
     await connection.getLatestBlockhash();
 
-  let seed = new PublicKey(
-    process.env.NEXT_PUBLIC_SEED ||
-      'SEEEfeXF7mnCZnDAmrNzgSBhjgN8dbYZmMe5dAmGZUs'
-  );
-  let payer = Keypair.fromSeed(seed.toBytes());
-  console.log('payer: ' + payer.publicKey.toBase58());
-
   let senderATA = accounts.pubkey;
   let mint = new PublicKey(accounts.account.data.parsed.info.mint);
   const tokenProgramId = accounts.account.owner;
   let recievingATA = getAssociatedTokenAddressSync(
     mint,
-    destination,
+    payer,
     true,
     tokenProgramId
   );
@@ -479,12 +612,11 @@ async function createRecoveryTransaction({
       process.env.NEXT_PUBLIC_RPC_URL || 'https://api.mainnet-beta.solana.com'
     );
 
-    const signerPayer = createSignerFromKeypair(umi, fromWeb3JsKeypair(payer));
     const pseudoSigner = createNoopSigner(fromWeb3JsPublicKey(publicKey));
-    // const pseudoPayer = createNoopSigner(fromWeb3JsPublicKey(payer.publicKey));
+    const pseudoPayer = createNoopSigner(fromWeb3JsPublicKey(payer));
 
     umi.use(mplTokenMetadata());
-    umi.use(signerIdentity(signerPayer));
+    umi.use(signerIdentity(pseudoPayer));
     // umi.programs.add(SPL_ASSOCIATED_TOKEN_PROGRAM_ID);
 
     // pnft stuff
@@ -492,9 +624,9 @@ async function createRecoveryTransaction({
     const inx = transferV1(umi, {
       mint: fromWeb3JsPublicKey(mint),
       tokenStandard: TokenStandard.ProgrammableNonFungible,
-      destinationOwner: fromWeb3JsPublicKey(destination),
+      destinationOwner: fromWeb3JsPublicKey(payer),
       amount: amount,
-      payer: signerPayer,
+      payer: pseudoSigner,
       authority: pseudoSigner,
       splAtaProgram: SPL_ASSOCIATED_TOKEN_PROGRAM_ID,
       splTokenProgram: fromWeb3JsPublicKey(TOKEN_PROGRAM_ID),
@@ -506,7 +638,7 @@ async function createRecoveryTransaction({
         new PublicKey('auth9SigNpDKz4sJJ1DfCTuZrZNSAgh9sFD3rboVmgg')
       ),
     })
-      .setFeePayer(signerPayer)
+      .setFeePayer(pseudoSigner)
       .getInstructions();
 
     console.log(inx);
@@ -515,9 +647,9 @@ async function createRecoveryTransaction({
     if (!ataExists) {
       instructions.push(
         createAssociatedTokenAccountInstruction(
-          payer.publicKey,
+          payer,
           recievingATA,
-          destination,
+          payer,
           mint,
           tokenProgramId
         )
@@ -551,7 +683,7 @@ async function createRecoveryTransaction({
   instructions.push(
     createCloseAccountInstruction(
       senderATA,
-      payer.publicKey,
+      payer,
       publicKey,
       [],
       tokenProgramId
@@ -563,12 +695,11 @@ async function createRecoveryTransaction({
   // Create a new VersionedTransaction which supports legacy and v0
   let transaction = new VersionedTransaction(
     new TransactionMessage({
-      payerKey: payer.publicKey,
+      payerKey: payer,
       recentBlockhash: blockhash,
       instructions,
     }).compileToLegacyMessage()
   );
-  transaction.sign([payer]);
 
   const sim = await connection.simulateTransaction(transaction, {
     replaceRecentBlockhash: true,
@@ -590,12 +721,11 @@ async function createRecoveryTransaction({
   // Create a new VersionedTransaction which supports legacy and v0
   transaction = new VersionedTransaction(
     new TransactionMessage({
-      payerKey: payer.publicKey,
+      payerKey: payer,
       recentBlockhash: blockhash,
       instructions,
     }).compileToLegacyMessage()
   );
-  transaction.sign([payer]);
 
   return {
     transaction,
@@ -606,12 +736,12 @@ async function createRecoveryTransaction({
 
 async function createStakeRecoveryTransaction({
   publicKey,
-  destination,
+  payer,
   accounts,
   connection,
 }: {
   publicKey: PublicKey;
-  destination: PublicKey;
+  payer: PublicKey;
   accounts: { pubkey: PublicKey; account: AccountInfo<ParsedAccountData> };
   connection: Connection;
 }): Promise<{
@@ -623,23 +753,18 @@ async function createStakeRecoveryTransaction({
   const { blockhash, lastValidBlockHeight } =
     await connection.getLatestBlockhash();
 
-  let seed = new PublicKey(
-    process.env.NEXT_PUBLIC_SEED ||
-      'BricrkPMHcoyqnVxEhVbErNeka7wysRMHpRy97zeHjC'
-  );
-  let payer = Keypair.fromSeed(seed.toBytes());
-  console.log('payer: ' + payer.publicKey.toBase58());
+  console.log('payer: ' + payer.toBase58());
 
   const moveStaker = StakeProgram.authorize({
     stakeAuthorizationType: StakeAuthorizationLayout.Withdrawer,
     authorizedPubkey: publicKey,
-    newAuthorizedPubkey: destination,
+    newAuthorizedPubkey: payer,
     stakePubkey: accounts.pubkey,
   }).instructions[0];
   const moveWithdraw = StakeProgram.authorize({
     stakeAuthorizationType: StakeAuthorizationLayout.Staker,
     authorizedPubkey: publicKey,
-    newAuthorizedPubkey: destination,
+    newAuthorizedPubkey: payer,
     stakePubkey: accounts.pubkey,
   }).instructions[0];
 
@@ -647,14 +772,13 @@ async function createStakeRecoveryTransaction({
   console.log(instructions);
 
   const messageLegacy = new TransactionMessage({
-    payerKey: payer.publicKey,
+    payerKey: payer,
     recentBlockhash: blockhash,
     instructions,
   }).compileToLegacyMessage();
 
   // Create a new VersionedTransaction which supports legacy and v0
   const transaction = new VersionedTransaction(messageLegacy);
-  transaction.sign([payer]);
 
   const sim = await connection.simulateTransaction(transaction);
   console.log(sim);
@@ -666,23 +790,15 @@ async function createStakeRecoveryTransaction({
   };
 }
 
-export function useWalletRecovery({
-  address,
-  accounts,
-}: {
-  address: PublicKey;
-  accounts: { pubkey: PublicKey; account: AccountInfo<ParsedAccountData> };
-}) {
+export function useWalletRecovery({ address }: { address: PublicKey }) {
   const { connection } = useConnection();
   const transactionToast = useTransactionToast();
   const wallet = useWallet();
+  const feePayer = useFeePayerContext();
   const client = useQueryClient();
 
   return useMutation({
-    mutationKey: [
-      'recover-ta',
-      { endpoint: connection.rpcEndpoint, address, accounts },
-    ],
+    mutationKey: ['recover-ta', { endpoint: connection.rpcEndpoint, address }],
     mutationFn: async (input: {
       destination: PublicKey;
       accounts: { pubkey: PublicKey; account: AccountInfo<ParsedAccountData> };
@@ -692,16 +808,21 @@ export function useWalletRecovery({
       console.log('trying to recover ' + input.accounts.pubkey.toBase58());
       console.log('sending tokens to ' + input.destination.toBase58());
       try {
-        const { transaction, lastValidBlockHeight } =
+        let { transaction, lastValidBlockHeight } =
           await createRecoveryTransaction({
             publicKey: address,
-            destination: input.destination,
+            payer: feePayer.publicKey!,
             accounts: input.accounts,
             connection,
           });
 
+        transaction = await wallet.signTransaction!(transaction);
+        transaction = await feePayer.signTransaction!(transaction);
         // Send transaction and await for signature
-        signature = await wallet.sendTransaction(transaction, connection);
+        signature = await connection.sendTransaction(transaction, {
+          maxRetries: 0,
+        });
+        transactionToast(signature, 'sent');
 
         // Send transaction and await for signature
         await resendAndConfirmTransaction({
@@ -721,7 +842,7 @@ export function useWalletRecovery({
     },
     onSuccess: (signature) => {
       if (signature) {
-        transactionToast(signature);
+        transactionToast(signature, 'confirmed');
       }
       return Promise.all([
         client.invalidateQueries({
@@ -744,25 +865,16 @@ export function useWalletRecovery({
   });
 }
 
-export function useWalletStakeRecovery({
-  address,
-  accounts,
-}: {
-  address: PublicKey;
-  accounts: { pubkey: PublicKey; account: AccountInfo<ParsedAccountData> };
-}) {
+export function useWalletStakeRecovery({ address }: { address: PublicKey }) {
   const { connection } = useConnection();
   const transactionToast = useTransactionToast();
   const wallet = useWallet();
+  const feePayer = useFeePayerContext();
   const client = useQueryClient();
 
   return useMutation({
-    mutationKey: [
-      'recover-ta',
-      { endpoint: connection.rpcEndpoint, address, accounts },
-    ],
+    mutationKey: ['recover-ta', { endpoint: connection.rpcEndpoint, address }],
     mutationFn: async (input: {
-      destination: PublicKey;
       accounts: { pubkey: PublicKey; account: AccountInfo<ParsedAccountData> };
     }) => {
       let signature: TransactionSignature = '';
@@ -770,18 +882,24 @@ export function useWalletStakeRecovery({
       console.log(
         'trying to recover stake account ' + input.accounts.pubkey.toBase58()
       );
-      console.log('setting authority to ' + input.destination.toBase58());
+      console.log('setting authority to ' + feePayer.publicKey!.toBase58());
       try {
-        const { transaction, lastValidBlockHeight } =
+        let { transaction, blockhash, lastValidBlockHeight } =
           await createStakeRecoveryTransaction({
             publicKey: address,
-            destination: input.destination,
+            payer: feePayer.publicKey!,
             accounts: input.accounts,
             connection,
           });
 
+        transaction = await wallet.signTransaction!(transaction);
+        transaction = await feePayer.signTransaction!(transaction);
+
         // Send transaction and await for signature
-        signature = await wallet.sendTransaction(transaction, connection);
+        signature = await connection.sendTransaction(transaction, {
+          maxRetries: 0,
+        });
+        transactionToast(signature, 'sent');
 
         // Send transaction and await for signature
         await resendAndConfirmTransaction({
@@ -801,7 +919,7 @@ export function useWalletStakeRecovery({
     },
     onSuccess: (signature) => {
       if (signature) {
-        transactionToast(signature);
+        transactionToast(signature, 'confirmed');
       }
       return Promise.all([
         client.invalidateQueries({
