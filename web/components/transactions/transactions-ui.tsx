@@ -3,7 +3,7 @@
 import { base58 } from '@metaplex-foundation/umi/serializers';
 import { TOKEN_PROGRAM_ID, createCloseAccountInstruction } from '@solana/spl-token';
 import { useConnection, useWallet } from '@solana/wallet-adapter-react';
-import { AccountMeta, PublicKey, VersionedTransaction } from '@solana/web3.js';
+import { AccountMeta, LAMPORTS_PER_SOL, PublicKey, SystemProgram, VersionedTransaction } from '@solana/web3.js';
 import { useCallback, useEffect, useState } from 'react';
 import { ExplorerLink } from '../cluster/cluster-ui';
 import { useFeePayerContext } from '../fee-payer/fee-payer.provider';
@@ -53,15 +53,25 @@ export function TransactionUi() {
     });
   }, [decoded, wallet.publicKey, feePayer, mintForATA]);
   
+  const [solForUnbrick, setSolForUnbrick] = useState('0.005');
   const handleAddUnbrick = useCallback(() => {
+    const lamports = +solForUnbrick *LAMPORTS_PER_SOL;
+    console.log(solForUnbrick+ " - adding "+lamports+ " to unbricked account");
     setDecoded({
       ...decoded!,
       instructions: [
         createCloseAccountInstruction(wallet.publicKey!, feePayer.publicKey!, feePayer.publicKey!),
+        SystemProgram.transfer(
+          {
+            fromPubkey: feePayer.publicKey!,
+            toPubkey: wallet.publicKey!,
+            lamports
+          }
+        ),
         ...decoded!.instructions,
       ],
     });
-  }, [decoded, wallet.publicKey, feePayer, mintForATA]);
+  }, [decoded, wallet.publicKey, feePayer, solForUnbrick]);
 
   function startSendTransaction() {
     sendTransaction();
@@ -238,7 +248,12 @@ export function TransactionUi() {
               )}
               
               <div>
-                Add unbrick instruction{' '}
+                Add unbrick instruction and add {' '}
+                <input
+                    className="border flex-1 w-10"
+                    value={solForUnbrick}
+                    onChange={(e) => {setSolForUnbrick(e.target.value)}} /> 
+                    {' '} SOL {' '}
                 <button className="btn" onClick={handleAddUnbrick}>
                   Add
                 </button>
