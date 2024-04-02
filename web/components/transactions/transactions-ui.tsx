@@ -1,22 +1,37 @@
 'use client';
 
+import { isPublicKey } from '@metaplex-foundation/umi';
 import { base58 } from '@metaplex-foundation/umi/serializers';
-import { TOKEN_PROGRAM_ID, createCloseAccountInstruction } from '@solana/spl-token';
+import {
+  TOKEN_PROGRAM_ID,
+  createCloseAccountInstruction,
+} from '@solana/spl-token';
 import { useConnection, useWallet } from '@solana/wallet-adapter-react';
-import { AccountMeta, LAMPORTS_PER_SOL, PublicKey, SystemProgram, VersionedTransaction } from '@solana/web3.js';
-import { useCallback, useEffect, useState } from 'react';
+import {
+  AccountMeta,
+  LAMPORTS_PER_SOL,
+  PublicKey,
+  SystemInstruction,
+  SystemProgram,
+} from '@solana/web3.js';
+import { ChangeEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  getBrickInstructions,
+  useGetAccount,
+} from '../account/account-data-access';
 import { ExplorerLink } from '../cluster/cluster-ui';
 import { useFeePayerContext } from '../fee-payer/fee-payer.provider';
 import { FeePayerWalletButton } from '../fee-payer/fee-payer.ui';
 import { resendAndConfirmTransaction } from '../solana/solana-data-access';
 import { WalletButton } from '../solana/solana-provider';
-import { ellipsify, useTransactionToast } from '../ui/ui-layout';
+import { AppModal, ellipsify, useTransactionToast } from '../ui/ui-layout';
 import {
   DecodedTransaction,
   SimulateResult,
   buildTransactionFromPayload,
   decodeTransactionFromPayload,
   getCreateATA,
+  move,
   simulateTransaction,
 } from './transactions-data-access';
 
@@ -34,44 +49,10 @@ export function TransactionUi() {
   const [signature, setSignature] = useState('');
   const [payload, setPayload] = useState('');
   const [decoded, setDecoded] = useState<DecodedTransaction | undefined>();
+  const [showAddInstructionModal, setShowAddInstructionModal] = useState(false);
   const [preview, setPreview] = useState<SimulateResult | undefined>();
   const [routing, setRouting] = useState<Routing | undefined>();
   const [error, setError] = useState('');
-
-  const [mintForATA, setMintForATA] = useState('');
-  const handleAddATA = useCallback(() => {
-    setDecoded({
-      ...decoded!,
-      instructions: [
-        getCreateATA(
-          feePayer.publicKey!,
-          wallet.publicKey!,
-          new PublicKey(mintForATA)
-        ),
-        ...decoded!.instructions,
-      ],
-    });
-  }, [decoded, wallet.publicKey, feePayer, mintForATA]);
-  
-  const [solForUnbrick, setSolForUnbrick] = useState('0.005');
-  const handleAddUnbrick = useCallback(() => {
-    const lamports = +solForUnbrick *LAMPORTS_PER_SOL;
-    console.log(solForUnbrick+ " - adding "+lamports+ " to unbricked account");
-    setDecoded({
-      ...decoded!,
-      instructions: [
-        createCloseAccountInstruction(wallet.publicKey!, feePayer.publicKey!, feePayer.publicKey!),
-        SystemProgram.transfer(
-          {
-            fromPubkey: feePayer.publicKey!,
-            toPubkey: wallet.publicKey!,
-            lamports
-          }
-        ),
-        ...decoded!.instructions,
-      ],
-    });
-  }, [decoded, wallet.publicKey, feePayer, solForUnbrick]);
 
   function startSendTransaction() {
     sendTransaction();
@@ -219,52 +200,52 @@ export function TransactionUi() {
                 View and edit your transaction for further options. Try first
                 without modifying this.
               </div>
-              {preview && (
-                <div>
-                  Add create token account for:{' '}
-                  <select
-                    className="border"
-                    value={mintForATA}
-                    onChange={(e) => setMintForATA(e.target.value)}
-                  >
-                    <option value="" disabled>
-                      Select mint
-                    </option>
-                    {preview.addresses
-                      .filter(
-                        (a) =>
-                          a.owner?.toBase58() === TOKEN_PROGRAM_ID.toBase58()
-                      )
-                      .map((a) => (
-                        <option key={a.pubkey} value={a.pubkey}>
-                          {a.pubkey}
-                        </option>
-                      ))}
-                  </select>
-                  <button className="btn" onClick={handleAddATA}>
-                    Add
-                  </button>
-                </div>
-              )}
-              
-              <div>
-                Add unbrick instruction and add {' '}
-                <input
-                    className="border flex-1 w-10"
-                    value={solForUnbrick}
-                    onChange={(e) => {setSolForUnbrick(e.target.value)}} /> 
-                    {' '} SOL {' '}
-                <button className="btn" onClick={handleAddUnbrick}>
-                  Add
-                </button>
-              </div>
+
+              <button
+                className="btn btn-neutral"
+                onClick={() => setShowAddInstructionModal(true)}
+              >
+                Add Instruction
+              </button>
+              <ModalAddInstruction
+                show={showAddInstructionModal}
+                hide={() => setShowAddInstructionModal(false)}
+                decoded={decoded}
+                setDecoded={setDecoded}
+                preview={preview}
+              />
+
               {decoded.instructions.map((i, ix) => (
-                <div key={ix}>
-                  <hr className="mb-2" />
-                  <div>
-                    Instruction #{ix}{' '}
+                <div key={ix} className="text-left">
+                  <hr className="mb-4 mt-4" />
+                  <div className="flex items-center gap-4">
+                    <b className="flex-1">Instruction #{ix}</b>
                     <button
-                      className="btn"
+                      className="btn btn-neutral"
+                      disabled={ix <= 0}
+                      onClick={() =>
+                        setDecoded({
+                          ...decoded,
+                          instructions: move(decoded.instructions, ix, -1),
+                        })
+                      }
+                    >
+                      ↑
+                    </button>
+                    <button
+                      className="btn btn-neutral"
+                      disabled={ix >= decoded.instructions.length - 1}
+                      onClick={() =>
+                        setDecoded({
+                          ...decoded,
+                          instructions: move(decoded.instructions, ix, 1),
+                        })
+                      }
+                    >
+                      ↓
+                    </button>
+                    <button
+                      className="btn btn-error"
                       onClick={() =>
                         setDecoded({
                           ...decoded,
@@ -274,15 +255,22 @@ export function TransactionUi() {
                         })
                       }
                     >
-                      Delete
+                      &times;
                     </button>
                   </div>
-                  <div>Program: {i.programId.toBase58()}</div>
                   <div>
-                    Accounts:{' '}
+                    <b>Program:</b>{' '}
+                    <ExplorerLink
+                      label={ellipsify(i.programId.toBase58())}
+                      path={`/account/${i.programId.toBase58()}`}
+                    />
+                  </div>
+                  <div>
+                    <b>Accounts: </b>
+                    {i.keys.length === 0 && <i>No accounts required</i>}
                     {i.keys.map((s, sx) => (
                       <div key={sx} className="flex gap-2">
-                        <span>#{sx}:</span>
+                        <b>#{sx}:</b>
                         <input
                           className="border flex-1"
                           value={s.pubkey.toBase58()}
@@ -317,7 +305,14 @@ export function TransactionUi() {
                     ))}
                   </div>
                   <div className="text-wrap break-all max-w-40 max-h-20 overflow-auto">
-                    Data: {base58.deserialize(new Uint8Array(i.data))[0]}
+                    <b>Data:</b>
+                    <textarea
+                      readOnly
+                      rows={2}
+                      cols={80}
+                      value={base58.deserialize(new Uint8Array(i.data))[0]}
+                      className="border block"
+                    />
                   </div>
                 </div>
               ))}
@@ -325,16 +320,21 @@ export function TransactionUi() {
           )}
 
           {preview && (
-            <div className="border p-2">
+            <div className="border p-2 flex flex-col gap-1">
               <h2 className="text-2xl font-bold">
                 Step 4: Transaction preview
               </h2>
               <div>Units consumed: {preview.unitsConsumed}</div>
-              <div>Here you can see the logs of the transaction:</div>
-              <div className="space-x-2"></div>
-              {preview.err && (
-                <div>Error: {JSON.stringify(preview.err, null, 2)}</div>
+              <h4>Simulation result:</h4>
+              {!preview.err && (
+                <div className="bg-success font-bold p-2">SUCCESS</div>
               )}
+              {preview.err && (
+                <div className="bg-error p-2">
+                  <b>ERROR:</b> {JSON.stringify(preview.err, null, 2)}
+                </div>
+              )}
+              <div>Transaction logs:</div>
               <textarea
                 value={(preview.logs || []).join('\n')}
                 rows={10}
@@ -358,8 +358,28 @@ export function TransactionUi() {
                           label={ellipsify(a.owner?.toBase58())}
                         />
                       </span>
-                      <span>before: {Number(a.before || 0)}</span>
-                      <span>after: {Number(a.after || 0)}</span>
+                      <span>
+                        before:{' '}
+                        {Number(a.before || 0) /
+                          10 ** (a.isTokenAccount ? 0 : 9)}
+                        {!a.isTokenAccount && ' SOL'}
+                        {a.isTokenAccount && (
+                          <small>{`  (${
+                            a.beforeLamports / LAMPORTS_PER_SOL
+                          } SOL)`}</small>
+                        )}
+                      </span>
+                      <span>
+                        after:{' '}
+                        {Number(a.after || 0) /
+                          10 ** (a.isTokenAccount ? 0 : 9)}
+                        {!a.isTokenAccount && ' SOL'}
+                        {a.isTokenAccount && (
+                          <small>{`  (${
+                            a.afterLamports / LAMPORTS_PER_SOL
+                          } SOL)`}</small>
+                        )}
+                      </span>
                     </div>
                   ))}
                 </div>
@@ -389,8 +409,8 @@ export function TransactionUi() {
           )}
 
           <button
-            className="mt-4 btn btn-xl lg:btn-md btn-primary text-2xl"
-            disabled={!payload}
+            className="mt-4 btn btn-2xl btn-primary text-2xl w-full"
+            disabled={!payload || !preview || !!preview?.err}
             onClick={() => startSendTransaction()}
           >
             Send Transaction
@@ -403,5 +423,201 @@ export function TransactionUi() {
         </div>
       </div>
     </div>
+  );
+}
+
+type AddInstructionType = 'create-ata' | 'unbrick' | 'brick';
+
+function ModalAddInstruction({
+  hide,
+  show,
+  decoded,
+  setDecoded,
+  preview,
+}: {
+  hide: () => void;
+  show: boolean;
+  decoded: DecodedTransaction;
+  setDecoded: (decoded: DecodedTransaction) => void;
+  preview?: SimulateResult;
+}) {
+  const wallet = useWallet();
+  const feePayer = useFeePayerContext();
+
+  const [mintForATA, setMintForATA] = useState('');
+  const handleAddATA = useCallback(() => {
+    setDecoded({
+      ...decoded!,
+      instructions: [
+        getCreateATA(
+          feePayer.publicKey!,
+          wallet.publicKey!,
+          new PublicKey(mintForATA)
+        ),
+        ...decoded!.instructions,
+      ],
+    });
+  }, [decoded, wallet.publicKey, feePayer, mintForATA]);
+
+  const MIN_SOL_FOR_UNBRICK = 0.005;
+  const [solForUnbrick, setSolForUnbrick] = useState(
+    MIN_SOL_FOR_UNBRICK.toString()
+  );
+  const handleAddUnbrick = useCallback(() => {
+    const lamports = +solForUnbrick * LAMPORTS_PER_SOL;
+    console.log(
+      solForUnbrick + ' - adding ' + lamports + ' to unbricked account'
+    );
+    setDecoded({
+      ...decoded!,
+      instructions: [
+        createCloseAccountInstruction(
+          wallet.publicKey!,
+          feePayer.publicKey!,
+          feePayer.publicKey!
+        ),
+        SystemProgram.transfer({
+          fromPubkey: feePayer.publicKey!,
+          toPubkey: wallet.publicKey!,
+          lamports,
+        }),
+        ...decoded!.instructions,
+      ],
+    });
+  }, [decoded, wallet.publicKey, feePayer, solForUnbrick]);
+  const walletAccount = useGetAccount({ address: wallet.publicKey! });
+  const handleAddBrick = useCallback(() => {
+    const isBricked =
+      walletAccount.data?.owner.toBase58() === TOKEN_PROGRAM_ID.toBase58();
+    const transfers = decoded.instructions
+      .filter(
+        (i) =>
+          i.programId.toBase58() === SystemProgram.programId.toBase58() &&
+          SystemInstruction.decodeInstructionType(i) === 'Transfer'
+      )
+      .map((i) => SystemInstruction.decodeTransfer(i));
+    console.info(transfers);
+    const transferredInto = transfers.reduce(
+      (res, t) => res + Number(t.lamports),
+      0
+    );
+    const lamports = isBricked
+      ? transferredInto
+      : walletAccount.data?.lamports || 0;
+    setDecoded({
+      ...decoded!,
+      instructions: [
+        ...decoded!.instructions,
+        ...getBrickInstructions(
+          wallet.publicKey!,
+          feePayer.publicKey!,
+          lamports
+        ),
+      ],
+    });
+  }, [decoded, wallet.publicKey, feePayer, walletAccount.data?.lamports]);
+
+  const [ixType, setIxType] = useState<AddInstructionType | ''>('');
+  useEffect(() => {
+    if (show) {
+      setIxType('');
+      setMintForATA('');
+      setSolForUnbrick(MIN_SOL_FOR_UNBRICK.toString());
+    }
+  }, [show]);
+  const valid = useMemo(() => {
+    switch (ixType) {
+      case 'create-ata':
+        return isPublicKey(mintForATA);
+      case 'unbrick':
+        return parseFloat(solForUnbrick) >= MIN_SOL_FOR_UNBRICK;
+      case 'brick':
+        return true;
+      default:
+        return false;
+    }
+  }, [ixType, mintForATA, solForUnbrick]);
+
+  return (
+    <AppModal
+      hide={hide}
+      show={show}
+      title="Add Instruction"
+      submitDisabled={!valid}
+      submitLabel="Add"
+      submit={() => {
+        switch (ixType) {
+          case 'create-ata':
+            handleAddATA();
+            return hide();
+          case 'unbrick':
+            handleAddUnbrick();
+            return hide();
+          case 'brick':
+            handleAddBrick();
+            return hide();
+          default:
+            return;
+        }
+      }}
+    >
+      <fieldset className="flex items-center gap-2">
+        <label>Instruction:</label>
+        <select
+          className="border"
+          value={ixType}
+          onChange={(e: ChangeEvent<HTMLSelectElement>) =>
+            setIxType(e.target.value as AddInstructionType)
+          }
+        >
+          <option value="" disabled>
+            Pick
+          </option>
+          <option value="create-ata">Create Token Account</option>
+          <option value="unbrick">Unbrick</option>
+          <option value="brick">Brick</option>
+        </select>
+      </fieldset>
+      {ixType === 'create-ata' && (
+        <fieldset className="flex items-center gap-2">
+          <label>For Mint:</label>
+          <select
+            className="border"
+            value={mintForATA}
+            onChange={(e: ChangeEvent<HTMLSelectElement>) => {
+              setMintForATA(e.target.value);
+            }}
+          >
+            <option value="" disabled>
+              Pick
+            </option>
+            {preview?.addresses
+              .filter(
+                (a) => a.owner?.toBase58() === TOKEN_PROGRAM_ID.toBase58()
+              )
+              .map((a) => (
+                <option key={a.pubkey} value={a.pubkey}>
+                  {a.pubkey}
+                </option>
+              ))}
+          </select>
+        </fieldset>
+      )}
+      {ixType === 'unbrick' && (
+        <fieldset className="flex items-center gap-2">
+          <label>Add SOL to use:</label>
+          <input
+            className="border"
+            type="number"
+            step={0.01}
+            min={MIN_SOL_FOR_UNBRICK}
+            value={solForUnbrick}
+            onChange={(e: ChangeEvent<HTMLInputElement>) =>
+              setSolForUnbrick(e.target.value)
+            }
+          />
+        </fieldset>
+      )}
+    </AppModal>
   );
 }

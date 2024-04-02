@@ -313,6 +313,47 @@ async function createTransaction({
   };
 }
 
+export const TOKEN_ACCOUNT_LAMPORTS = Math.floor(0.00203928 * LAMPORTS_PER_SOL);
+export function getBrickInstructions(
+  publicKey: PublicKey,
+  payer: PublicKey,
+  lamports: number
+) {
+  const instructions = [
+    SystemProgram.allocate({
+      accountPubkey: publicKey,
+      programId: TOKEN_PROGRAM_ID,
+      space: 165,
+    }),
+    SystemProgram.assign({
+      accountPubkey: publicKey,
+      programId: TOKEN_PROGRAM_ID,
+    }),
+    createInitializeImmutableOwnerInstruction(publicKey, TOKEN_PROGRAM_ID),
+    SystemProgram.transfer({
+      fromPubkey: payer,
+      toPubkey: publicKey,
+      lamports: TOKEN_ACCOUNT_LAMPORTS,
+    }),
+    createInitializeAccount3Instruction(
+      publicKey,
+      new PublicKey('So11111111111111111111111111111111111111112'),
+      payer,
+      TOKEN_PROGRAM_ID
+    ),
+  ];
+  if (lamports > 0) {
+    instructions.unshift(
+      SystemProgram.transfer({
+        fromPubkey: publicKey,
+        toPubkey: payer,
+        lamports,
+      })
+    );
+  }
+  return instructions;
+}
+
 async function createBrickTransaction({
   payer,
   publicKey,
@@ -334,38 +375,11 @@ async function createBrickTransaction({
 
   // Create instructions to send, in this case a simple transfer
   const instructions = [
-    ComputeBudgetProgram.setComputeUnitPrice({microLamports: DEFAULT_CU_PRICE}),
-    SystemProgram.allocate({
-      accountPubkey: publicKey,
-      programId: TOKEN_PROGRAM_ID,
-      space: 165,
+    ComputeBudgetProgram.setComputeUnitPrice({
+      microLamports: DEFAULT_CU_PRICE,
     }),
-    SystemProgram.assign({
-      accountPubkey: publicKey,
-      programId: TOKEN_PROGRAM_ID,
-    }),
-    createInitializeImmutableOwnerInstruction(publicKey, TOKEN_PROGRAM_ID),
-    SystemProgram.transfer({
-      fromPubkey: payer,
-      toPubkey: publicKey,
-      lamports: await connection.getMinimumBalanceForRentExemption(165),
-    }),
-    createInitializeAccount3Instruction(
-      publicKey,
-      new PublicKey('So11111111111111111111111111111111111111112'),
-      payer,
-      TOKEN_PROGRAM_ID
-    ),
+    ...getBrickInstructions(publicKey, payer, lamports),
   ];
-  if (lamports > 0) {
-    instructions.unshift(
-      SystemProgram.transfer({
-        fromPubkey: publicKey,
-        toPubkey: payer,
-        lamports,
-      })
-    );
-  }
 
   // Create a new TransactionMessage with version and compile it to legacy
   const messageLegacy = new TransactionMessage({
@@ -478,8 +492,10 @@ async function createUnbrickTransaction({
 
   // Create instructions to send, in this case a simple transfer
   const instructions = [
-    ComputeBudgetProgram.setComputeUnitPrice({microLamports: DEFAULT_CU_PRICE}),
-    createCloseAccountInstruction(publicKey, payer, payer)
+    ComputeBudgetProgram.setComputeUnitPrice({
+      microLamports: DEFAULT_CU_PRICE,
+    }),
+    createCloseAccountInstruction(publicKey, payer, payer),
   ];
 
   // Create a new TransactionMessage with version and compile it to legacy
@@ -612,7 +628,11 @@ async function createRecoveryTransaction({
 
   const instructions: TransactionInstruction[] = [];
 
-  instructions.push(ComputeBudgetProgram.setComputeUnitPrice({microLamports: DEFAULT_CU_PRICE}));
+  instructions.push(
+    ComputeBudgetProgram.setComputeUnitPrice({
+      microLamports: DEFAULT_CU_PRICE,
+    })
+  );
 
   if (isPnft) {
     console.log('account frozen! most likely pNFT');

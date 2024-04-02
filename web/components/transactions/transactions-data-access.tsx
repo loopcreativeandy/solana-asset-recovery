@@ -31,6 +31,7 @@ import {
   getPriorityFeeEstimate,
 } from '../solana/solana-data-access';
 import { WalletContextState } from '@solana/wallet-adapter-react';
+import { uniqueBy } from '@metaplex-foundation/umi';
 
 export type DecodedTransaction = {
   version: 'legacy' | 0;
@@ -177,12 +178,21 @@ export function getCreateATA(
   return createAssociatedTokenAccountInstruction(feepayer, ata, owner, mint);
 }
 
+export function move<T>(arr: T[], index: number, offset: number) {
+  let items = arr.splice(index, 1);
+  arr.splice(index + offset, 0, ...items);
+  return arr;
+}
+
 export type SimulateResult = SimulatedTransactionResponse & {
   addresses: {
     pubkey: string;
+    isTokenAccount: boolean;
     owner?: PublicKey;
     before?: bigint | number;
+    beforeLamports: number;
     after?: bigint | number;
+    afterLamports: number;
   }[];
 };
 
@@ -202,17 +212,28 @@ export async function simulateTransaction(
     message.compileToV0Message(decodedTransaction.addressLookupTableAccounts)
   );
 
-  const addresses = tx.message.staticAccountKeys.map((a) => a.toBase58());
-
-  const before = await connection.getMultipleAccountsInfo(
-    tx.message.staticAccountKeys
+  const addresses = uniqueBy(
+    [
+      ...tx.message.staticAccountKeys,
+      ...tx.message.addressTableLookups.flatMap((a, ix) =>
+        [...a.writableIndexes, ...a.readonlyIndexes].map(
+          (w) =>
+            decodedTransaction.addressLookupTableAccounts!.find(
+              (l) => l.key.toBase58() === a.accountKey.toBase58()
+            )!.state.addresses[w]
+        )
+      ),
+    ],
+    (a, b) => a === b
   );
+
+  const before = await connection.getMultipleAccountsInfo(addresses);
   const { value: result } = await connection.simulateTransaction(tx, {
     replaceRecentBlockhash: true,
     sigVerify: false,
     accounts: {
       encoding: 'base64',
-      addresses,
+      addresses: addresses.map((a) => a.toBase58()),
     },
   });
 
@@ -223,7 +244,8 @@ export async function simulateTransaction(
         before[ix]?.owner?.toBase58() === TOKEN_PROGRAM_ID.toBase58() &&
         before[ix]?.data.length === ACCOUNT_SIZE;
       return {
-        pubkey,
+        pubkey: pubkey.toBase58(),
+        isTokenAccount,
         owner: isTokenAccount
           ? AccountLayout.decode(before[ix]!.data).owner
           : before[ix]?.owner,
@@ -231,6 +253,7 @@ export async function simulateTransaction(
           isTokenAccount && before[ix]!.data
             ? AccountLayout.decode(before[ix]!.data).amount
             : before[ix]?.lamports,
+        beforeLamports: before[ix]?.lamports || 0,
         after:
           isTokenAccount &&
           result.accounts?.[ix]?.owner === TOKEN_PROGRAM_ID.toBase58()
@@ -238,6 +261,7 @@ export async function simulateTransaction(
                 base64.serialize(result.accounts![ix]!.data[0])
               ).amount
             : result.accounts?.[ix]?.lamports,
+        afterLamports: result.accounts?.[ix]?.lamports || 0,
       };
     }),
   };
