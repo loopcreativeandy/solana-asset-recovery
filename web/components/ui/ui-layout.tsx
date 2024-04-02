@@ -30,7 +30,7 @@ export function UiLayout({ children }: { children: ReactNode }) {
             <img
               className="h-4 md:h-6"
               alt="Solana Logo"
-              src="/solana-logo.png"
+              src="/solandy-logo.png"
             />
           </Link>
           <ul className="menu menu-horizontal px-1 space-x-2">
