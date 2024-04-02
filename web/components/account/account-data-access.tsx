@@ -825,8 +825,8 @@ export function useWalletRecovery({ address }: { address: PublicKey }) {
             connection,
           });
 
-        transaction = await wallet.signTransaction!(transaction);
         transaction = await feePayer.signTransaction!(transaction);
+        transaction = await wallet.signTransaction!(transaction);
         // Send transaction and await for signature
         signature = await connection.sendTransaction(transaction, {
           maxRetries: 0,
@@ -901,8 +901,8 @@ export function useWalletStakeRecovery({ address }: { address: PublicKey }) {
             connection,
           });
 
-        transaction = await wallet.signTransaction!(transaction);
         transaction = await feePayer.signTransaction!(transaction);
+        transaction = await wallet.signTransaction!(transaction);
 
         // Send transaction and await for signature
         signature = await connection.sendTransaction(transaction, {
