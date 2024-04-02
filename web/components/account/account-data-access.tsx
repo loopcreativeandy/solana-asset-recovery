@@ -700,34 +700,35 @@ async function createRecoveryTransaction({
 
   console.log(instructions);
 
+  // not doing that right now for RPC load reasons
+  // // Create a new VersionedTransaction which supports legacy and v0
+  // let transaction = new VersionedTransaction(
+  //   new TransactionMessage({
+  //     payerKey: payer,
+  //     recentBlockhash: blockhash,
+  //     instructions,
+  //   }).compileToLegacyMessage()
+  // );
+
+  // const sim = await connection.simulateTransaction(transaction, {
+  //   replaceRecentBlockhash: true,
+  //   sigVerify: false,
+  // });
+  // const units = (sim.value.unitsConsumed || 1_375_000) + 25_000;
+  // const microLamports = await getPriorityFeeEstimate(
+  //   connection.rpcEndpoint,
+  //   transaction,
+  //   PriorityLevel.High
+  // );
+
+  // instructions.unshift(
+  //   ComputeBudgetProgram.setComputeUnitLimit({ units }),
+  //   ComputeBudgetProgram.setComputeUnitPrice({ microLamports })
+  // );
+  // console.log(sim);
+
   // Create a new VersionedTransaction which supports legacy and v0
   let transaction = new VersionedTransaction(
-    new TransactionMessage({
-      payerKey: payer,
-      recentBlockhash: blockhash,
-      instructions,
-    }).compileToLegacyMessage()
-  );
-
-  const sim = await connection.simulateTransaction(transaction, {
-    replaceRecentBlockhash: true,
-    sigVerify: false,
-  });
-  const units = (sim.value.unitsConsumed || 1_375_000) + 25_000;
-  const microLamports = await getPriorityFeeEstimate(
-    connection.rpcEndpoint,
-    transaction,
-    PriorityLevel.High
-  );
-
-  instructions.unshift(
-    ComputeBudgetProgram.setComputeUnitLimit({ units }),
-    ComputeBudgetProgram.setComputeUnitPrice({ microLamports })
-  );
-  console.log(sim);
-
-  // Create a new VersionedTransaction which supports legacy and v0
-  transaction = new VersionedTransaction(
     new TransactionMessage({
       payerKey: payer,
       recentBlockhash: blockhash,
@@ -788,8 +789,8 @@ async function createStakeRecoveryTransaction({
   // Create a new VersionedTransaction which supports legacy and v0
   const transaction = new VersionedTransaction(messageLegacy);
 
-  const sim = await connection.simulateTransaction(transaction);
-  console.log(sim);
+  // const sim = await connection.simulateTransaction(transaction);
+  // console.log(sim);
 
   return {
     transaction,
