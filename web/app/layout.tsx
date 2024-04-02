@@ -21,7 +21,7 @@ export default function RootLayout({
         <Provider>
           <ClusterProvider>
             <FeePayerProvider>
-              <SolanaProvider>
+              <SolanaProvider localStorageKey="compromised">
                 <UiLayout>{children}</UiLayout>
               </SolanaProvider>
             </FeePayerProvider>

@@ -3,7 +3,7 @@
 import { PublicKey, SystemProgram } from '@solana/web3.js';
 import { useMemo } from 'react';
 
-import { useParams } from 'next/navigation';
+import { redirect, useParams } from 'next/navigation';
 
 import { AccountLayout, TOKEN_PROGRAM_ID } from '@solana/spl-token';
 import { useWallet } from '@solana/wallet-adapter-react';
@@ -42,6 +42,15 @@ export default function AccountDetailFeature() {
 
   const wallet = useWallet();
   const feePayer = useFeePayerContext();
+
+  if (
+    address &&
+    wallet.publicKey &&
+    wallet.publicKey.toBase58() !== address.toBase58()
+  ) {
+    redirect(`/account/${wallet.publicKey.toBase58()}`);
+  }
+
   if (!address) {
     return <div>Error loading account</div>;
   }
