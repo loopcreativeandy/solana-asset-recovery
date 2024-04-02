@@ -634,7 +634,7 @@ async function createRecoveryTransaction({
       tokenStandard: TokenStandard.ProgrammableNonFungible,
       destinationOwner: fromWeb3JsPublicKey(payer),
       amount: amount,
-      payer: pseudoSigner,
+      payer: pseudoPayer,
       authority: pseudoSigner,
       splAtaProgram: SPL_ASSOCIATED_TOKEN_PROGRAM_ID,
       splTokenProgram: fromWeb3JsPublicKey(TOKEN_PROGRAM_ID),
