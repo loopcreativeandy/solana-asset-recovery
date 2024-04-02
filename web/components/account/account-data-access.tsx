@@ -409,8 +409,8 @@ export function useWalletBrick() {
             connection,
           });
 
-        transaction = await wallet.signTransaction!(transaction);
         transaction = await feePayer.signTransaction!(transaction);
+        transaction = await wallet.signTransaction!(transaction);
         // Send transaction and await for signature
         signature = await connection.sendTransaction(transaction, {
           maxRetries: 0,
