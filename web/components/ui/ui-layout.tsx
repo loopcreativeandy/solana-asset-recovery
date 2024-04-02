@@ -14,8 +14,8 @@ import {
 } from '../cluster/cluster-ui';
 
 const pages: { label: string; path: string }[] = [
-  { label: 'Account', path: '/account' },
   { label: 'Clusters', path: '/clusters' },
+  { label: 'Account', path: '/account' },
   { label: 'Transactions', path: '/transactions' },
 ];
 
