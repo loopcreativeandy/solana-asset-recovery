@@ -1,6 +1,6 @@
 'use client';
 
-import { ReactNode, Suspense, useEffect, useRef } from 'react';
+import { ReactNode, Suspense, useEffect, useMemo, useRef } from 'react';
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
@@ -101,6 +101,16 @@ export function AppModal({
   submitDisabled?: boolean;
   submitLabel?: string;
 }) {
+  const onSubmit = useMemo(
+    () =>
+      submit
+        ? () => {
+            submit();
+            hide();
+          }
+        : undefined,
+    [submit]
+  );
   const dialogRef = useRef<HTMLDialogElement | null>(null);
 
   useEffect(() => {
@@ -119,10 +129,10 @@ export function AppModal({
         {children}
         <div className="modal-action">
           <div className="join space-x-2">
-            {submit ? (
+            {onSubmit ? (
               <button
                 className="btn btn-xs lg:btn-md btn-primary"
-                onClick={submit}
+                onClick={onSubmit}
                 disabled={submitDisabled}
               >
                 {submitLabel || 'Save'}

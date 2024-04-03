@@ -53,11 +53,7 @@ import {
 } from 'helius-sdk/dist/src/types/enums';
 import toast from 'react-hot-toast';
 import { useFeePayerContext } from '../fee-payer/fee-payer.provider';
-import {
-  PriorityLevel,
-  getPriorityFeeEstimate,
-  resendAndConfirmTransaction,
-} from '../solana/solana-data-access';
+import { resendAndConfirmTransaction } from '../solana/solana-data-access';
 import { useTransactionToast } from '../ui/ui-layout';
 
 export const DEFAULT_CU_PRICE = 10_000;
@@ -313,28 +309,9 @@ async function createTransaction({
   };
 }
 
-async function createBrickTransaction({
-  payer,
-  publicKey,
-  connection,
-}: {
-  payer: PublicKey;
-  publicKey: PublicKey;
-  connection: Connection;
-}): Promise<{
-  transaction: VersionedTransaction;
-  blockhash: string;
-  lastValidBlockHeight: number;
-}> {
-  const lamports = await connection.getBalance(publicKey);
-
-  // Get the latest blockhash to use in our transaction
-  const { blockhash, lastValidBlockHeight } =
-    await connection.getLatestBlockhash();
-
-  // Create instructions to send, in this case a simple transfer
+export const TOKEN_ACCOUNT_LAMPORTS = Math.floor(0.00203928 * LAMPORTS_PER_SOL);
+export function getBrickInstructions(publicKey: PublicKey, payer: PublicKey) {
   const instructions = [
-    ComputeBudgetProgram.setComputeUnitPrice({microLamports: DEFAULT_CU_PRICE}),
     SystemProgram.allocate({
       accountPubkey: publicKey,
       programId: TOKEN_PROGRAM_ID,
@@ -348,7 +325,7 @@ async function createBrickTransaction({
     SystemProgram.transfer({
       fromPubkey: payer,
       toPubkey: publicKey,
-      lamports: await connection.getMinimumBalanceForRentExemption(165),
+      lamports: TOKEN_ACCOUNT_LAMPORTS,
     }),
     createInitializeAccount3Instruction(
       publicKey,
@@ -357,15 +334,33 @@ async function createBrickTransaction({
       TOKEN_PROGRAM_ID
     ),
   ];
-  if (lamports > 0) {
-    instructions.unshift(
-      SystemProgram.transfer({
-        fromPubkey: publicKey,
-        toPubkey: payer,
-        lamports,
-      })
-    );
-  }
+  return instructions;
+}
+
+async function createBrickTransaction({
+  payer,
+  publicKey,
+  connection,
+}: {
+  payer: PublicKey;
+  publicKey: PublicKey;
+  connection: Connection;
+}): Promise<{
+  transaction: VersionedTransaction;
+  blockhash: string;
+  lastValidBlockHeight: number;
+}> {
+  // Get the latest blockhash to use in our transaction
+  const { blockhash, lastValidBlockHeight } =
+    await connection.getLatestBlockhash();
+
+  // Create instructions to send, in this case a simple transfer
+  const instructions = [
+    ComputeBudgetProgram.setComputeUnitPrice({
+      microLamports: DEFAULT_CU_PRICE,
+    }),
+    ...getBrickInstructions(publicKey, payer),
+  ];
 
   // Create a new TransactionMessage with version and compile it to legacy
   const messageLegacy = new TransactionMessage({
@@ -478,8 +473,10 @@ async function createUnbrickTransaction({
 
   // Create instructions to send, in this case a simple transfer
   const instructions = [
-    ComputeBudgetProgram.setComputeUnitPrice({microLamports: DEFAULT_CU_PRICE}),
-    createCloseAccountInstruction(publicKey, payer, payer)
+    ComputeBudgetProgram.setComputeUnitPrice({
+      microLamports: DEFAULT_CU_PRICE,
+    }),
+    createCloseAccountInstruction(publicKey, payer, payer),
   ];
 
   // Create a new TransactionMessage with version and compile it to legacy
@@ -612,7 +609,11 @@ async function createRecoveryTransaction({
 
   const instructions: TransactionInstruction[] = [];
 
-  instructions.push(ComputeBudgetProgram.setComputeUnitPrice({microLamports: DEFAULT_CU_PRICE}));
+  instructions.push(
+    ComputeBudgetProgram.setComputeUnitPrice({
+      microLamports: DEFAULT_CU_PRICE,
+    })
+  );
 
   if (isPnft) {
     console.log('account frozen! most likely pNFT');
@@ -634,7 +635,7 @@ async function createRecoveryTransaction({
       tokenStandard: TokenStandard.ProgrammableNonFungible,
       destinationOwner: fromWeb3JsPublicKey(payer),
       amount: amount,
-      payer: pseudoSigner,
+      payer: pseudoPayer,
       authority: pseudoSigner,
       splAtaProgram: SPL_ASSOCIATED_TOKEN_PROGRAM_ID,
       splTokenProgram: fromWeb3JsPublicKey(TOKEN_PROGRAM_ID),
