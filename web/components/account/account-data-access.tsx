@@ -53,11 +53,7 @@ import {
 } from 'helius-sdk/dist/src/types/enums';
 import toast from 'react-hot-toast';
 import { useFeePayerContext } from '../fee-payer/fee-payer.provider';
-import {
-  PriorityLevel,
-  getPriorityFeeEstimate,
-  resendAndConfirmTransaction,
-} from '../solana/solana-data-access';
+import { resendAndConfirmTransaction } from '../solana/solana-data-access';
 import { useTransactionToast } from '../ui/ui-layout';
 
 export const DEFAULT_CU_PRICE = 10_000;
@@ -314,11 +310,7 @@ async function createTransaction({
 }
 
 export const TOKEN_ACCOUNT_LAMPORTS = Math.floor(0.00203928 * LAMPORTS_PER_SOL);
-export function getBrickInstructions(
-  publicKey: PublicKey,
-  payer: PublicKey,
-  lamports: number
-) {
+export function getBrickInstructions(publicKey: PublicKey, payer: PublicKey) {
   const instructions = [
     SystemProgram.allocate({
       accountPubkey: publicKey,
@@ -342,15 +334,6 @@ export function getBrickInstructions(
       TOKEN_PROGRAM_ID
     ),
   ];
-  if (lamports > 0) {
-    instructions.unshift(
-      SystemProgram.transfer({
-        fromPubkey: publicKey,
-        toPubkey: payer,
-        lamports,
-      })
-    );
-  }
   return instructions;
 }
 
@@ -367,8 +350,6 @@ async function createBrickTransaction({
   blockhash: string;
   lastValidBlockHeight: number;
 }> {
-  const lamports = await connection.getBalance(publicKey);
-
   // Get the latest blockhash to use in our transaction
   const { blockhash, lastValidBlockHeight } =
     await connection.getLatestBlockhash();
@@ -378,7 +359,7 @@ async function createBrickTransaction({
     ComputeBudgetProgram.setComputeUnitPrice({
       microLamports: DEFAULT_CU_PRICE,
     }),
-    ...getBrickInstructions(publicKey, payer, lamports),
+    ...getBrickInstructions(publicKey, payer),
   ];
 
   // Create a new TransactionMessage with version and compile it to legacy

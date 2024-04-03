@@ -5,20 +5,19 @@ import { base58 } from '@metaplex-foundation/umi/serializers';
 import {
   TOKEN_PROGRAM_ID,
   createCloseAccountInstruction,
+  createTransferInstruction,
+  getAssociatedTokenAddressSync,
+  getMint,
 } from '@solana/spl-token';
 import { useConnection, useWallet } from '@solana/wallet-adapter-react';
 import {
   AccountMeta,
   LAMPORTS_PER_SOL,
   PublicKey,
-  SystemInstruction,
   SystemProgram,
 } from '@solana/web3.js';
 import { ChangeEvent, useCallback, useEffect, useMemo, useState } from 'react';
-import {
-  getBrickInstructions,
-  useGetAccount,
-} from '../account/account-data-access';
+import { getBrickInstructions } from '../account/account-data-access';
 import { ExplorerLink } from '../cluster/cluster-ui';
 import { useFeePayerContext } from '../fee-payer/fee-payer.provider';
 import { FeePayerWalletButton } from '../fee-payer/fee-payer.ui';
@@ -426,7 +425,12 @@ export function TransactionUi() {
   );
 }
 
-type AddInstructionType = 'create-ata' | 'unbrick' | 'brick';
+type AddInstructionType =
+  | 'create-ata'
+  | 'transfer-sol'
+  | 'transfer-spl'
+  | 'unbrick'
+  | 'brick';
 
 function ModalAddInstruction({
   hide,
@@ -441,10 +445,14 @@ function ModalAddInstruction({
   setDecoded: (decoded: DecodedTransaction) => void;
   preview?: SimulateResult;
 }) {
+  const { connection } = useConnection();
   const wallet = useWallet();
   const feePayer = useFeePayerContext();
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
+  const [amount, setAmount] = useState('');
+  const [mint, setMint] = useState('');
 
-  const [mintForATA, setMintForATA] = useState('');
   const handleAddATA = useCallback(() => {
     setDecoded({
       ...decoded!,
@@ -452,22 +460,61 @@ function ModalAddInstruction({
         getCreateATA(
           feePayer.publicKey!,
           wallet.publicKey!,
-          new PublicKey(mintForATA)
+          new PublicKey(mint)
         ),
         ...decoded!.instructions,
       ],
     });
-  }, [decoded, wallet.publicKey, feePayer, mintForATA]);
+  }, [decoded, wallet.publicKey, feePayer, mint]);
+
+  const handleAddTransferSOL = useCallback(() => {
+    setDecoded({
+      ...decoded!,
+      instructions: [
+        ...decoded!.instructions,
+        SystemProgram.transfer({
+          fromPubkey: new PublicKey(from),
+          toPubkey: new PublicKey(to),
+          lamports: Math.round(parseFloat(amount) * LAMPORTS_PER_SOL),
+        }),
+      ],
+    });
+  }, [decoded, from, to, amount]);
+
+  const handleAddTransferSPL = useCallback(async () => {
+    const mintPubkey = new PublicKey(mint);
+    const mintAccount = await getMint(connection, mintPubkey);
+    if (!mintAccount) {
+      return alert(`Mint ${mint} not found`);
+    }
+    const fromATA = getAssociatedTokenAddressSync(
+      mintPubkey,
+      new PublicKey(from),
+      true
+    );
+    const toATA = getAssociatedTokenAddressSync(
+      mintPubkey,
+      new PublicKey(to),
+      true
+    );
+    setDecoded({
+      ...decoded!,
+      instructions: [
+        ...decoded!.instructions,
+        createTransferInstruction(
+          fromATA,
+          toATA,
+          new PublicKey(from),
+          Math.round(parseFloat(amount) * 10 ** mintAccount.decimals)
+        ),
+      ],
+    });
+  }, [connection, decoded, from, to, amount, mint]);
 
   const MIN_SOL_FOR_UNBRICK = 0.005;
-  const [solForUnbrick, setSolForUnbrick] = useState(
-    MIN_SOL_FOR_UNBRICK.toString()
-  );
   const handleAddUnbrick = useCallback(() => {
-    const lamports = +solForUnbrick * LAMPORTS_PER_SOL;
-    console.log(
-      solForUnbrick + ' - adding ' + lamports + ' to unbricked account'
-    );
+    const lamports = +amount * LAMPORTS_PER_SOL;
+    console.log(amount + ' - adding ' + lamports + ' to unbricked account');
     setDecoded({
       ...decoded!,
       instructions: [
@@ -484,59 +531,54 @@ function ModalAddInstruction({
         ...decoded!.instructions,
       ],
     });
-  }, [decoded, wallet.publicKey, feePayer, solForUnbrick]);
-  const walletAccount = useGetAccount({ address: wallet.publicKey! });
+  }, [decoded, wallet.publicKey, feePayer, amount]);
   const handleAddBrick = useCallback(() => {
-    const isBricked =
-      walletAccount.data?.owner.toBase58() === TOKEN_PROGRAM_ID.toBase58();
-    const transfers = decoded.instructions
-      .filter(
-        (i) =>
-          i.programId.toBase58() === SystemProgram.programId.toBase58() &&
-          SystemInstruction.decodeInstructionType(i) === 'Transfer'
-      )
-      .map((i) => SystemInstruction.decodeTransfer(i));
-    console.info(transfers);
-    const transferredInto = transfers.reduce(
-      (res, t) => res + Number(t.lamports),
-      0
-    );
-    const lamports = isBricked
-      ? transferredInto
-      : walletAccount.data?.lamports || 0;
     setDecoded({
       ...decoded!,
       instructions: [
         ...decoded!.instructions,
-        ...getBrickInstructions(
-          wallet.publicKey!,
-          feePayer.publicKey!,
-          lamports
-        ),
+        ...getBrickInstructions(wallet.publicKey!, feePayer.publicKey!),
       ],
     });
-  }, [decoded, wallet.publicKey, feePayer, walletAccount.data?.lamports]);
+  }, [decoded, wallet.publicKey, feePayer]);
 
   const [ixType, setIxType] = useState<AddInstructionType | ''>('');
   useEffect(() => {
-    if (show) {
+    setAmount('');
+    setFrom('');
+    setTo('');
+    setMint('');
+    if (ixType === 'unbrick') {
+      setAmount(MIN_SOL_FOR_UNBRICK.toString());
+    }
+  }, [ixType]);
+  useEffect(() => {
+    if (!show) {
       setIxType('');
-      setMintForATA('');
-      setSolForUnbrick(MIN_SOL_FOR_UNBRICK.toString());
     }
   }, [show]);
+
   const valid = useMemo(() => {
     switch (ixType) {
       case 'create-ata':
-        return isPublicKey(mintForATA);
+        return isPublicKey(mint);
+      case 'transfer-sol':
+        return parseFloat(amount) > 0 && isPublicKey(from) && isPublicKey(to);
+      case 'transfer-spl':
+        return (
+          parseFloat(amount) > 0 &&
+          isPublicKey(from) &&
+          isPublicKey(to) &&
+          isPublicKey(mint)
+        );
       case 'unbrick':
-        return parseFloat(solForUnbrick) >= MIN_SOL_FOR_UNBRICK;
+        return parseFloat(amount) >= MIN_SOL_FOR_UNBRICK;
       case 'brick':
         return true;
       default:
         return false;
     }
-  }, [ixType, mintForATA, solForUnbrick]);
+  }, [ixType, from, to, amount, mint]);
 
   return (
     <AppModal
@@ -548,14 +590,15 @@ function ModalAddInstruction({
       submit={() => {
         switch (ixType) {
           case 'create-ata':
-            handleAddATA();
-            return hide();
+            return handleAddATA();
+          case 'transfer-sol':
+            return handleAddTransferSOL();
+          case 'transfer-spl':
+            return handleAddTransferSPL();
           case 'unbrick':
-            handleAddUnbrick();
-            return hide();
+            return handleAddUnbrick();
           case 'brick':
-            handleAddBrick();
-            return hide();
+            return handleAddBrick();
           default:
             return;
         }
@@ -564,7 +607,7 @@ function ModalAddInstruction({
       <fieldset className="flex items-center gap-2">
         <label>Instruction:</label>
         <select
-          className="border"
+          className="border flex-1"
           value={ixType}
           onChange={(e: ChangeEvent<HTMLSelectElement>) =>
             setIxType(e.target.value as AddInstructionType)
@@ -574,18 +617,20 @@ function ModalAddInstruction({
             Pick
           </option>
           <option value="create-ata">Create Token Account</option>
+          <option value="transfer-sol">Transfer SOL</option>
+          <option value="transfer-spl">Transfer Tokens</option>
           <option value="unbrick">Unbrick</option>
           <option value="brick">Brick</option>
         </select>
       </fieldset>
       {ixType === 'create-ata' && (
         <fieldset className="flex items-center gap-2">
-          <label>For Mint:</label>
+          <label>Mint:</label>
           <select
-            className="border"
-            value={mintForATA}
+            className="border flex-1"
+            value={mint}
             onChange={(e: ChangeEvent<HTMLSelectElement>) => {
-              setMintForATA(e.target.value);
+              setMint(e.target.value);
             }}
           >
             <option value="" disabled>
@@ -603,17 +648,76 @@ function ModalAddInstruction({
           </select>
         </fieldset>
       )}
+      {(ixType === 'transfer-sol' || ixType === 'transfer-spl') && (
+        <>
+          <fieldset className="flex items-center gap-2">
+            <label>From:</label>
+            <select
+              className="border flex-1"
+              value={from}
+              onChange={(e: ChangeEvent<HTMLSelectElement>) => {
+                setFrom(e.target.value);
+              }}
+            >
+              <option value="" disabled>
+                Pick
+              </option>
+              <option value={wallet.publicKey?.toBase58()}>
+                Compromised wallet
+              </option>
+              <option value={feePayer.publicKey?.toBase58()}>
+                Safe wallet
+              </option>
+            </select>
+          </fieldset>
+          <fieldset className="flex items-center gap-2">
+            <label>To:</label>
+            <input
+              className="border flex-1"
+              value={to}
+              onChange={(e: ChangeEvent<HTMLInputElement>) => {
+                setTo(e.target.value);
+              }}
+            />
+          </fieldset>
+          {ixType === 'transfer-spl' && (
+            <fieldset className="flex items-center gap-2">
+              <label>Mint:</label>
+              <input
+                className="border flex-1"
+                value={mint}
+                onChange={(e: ChangeEvent<HTMLInputElement>) =>
+                  setMint(e.target.value)
+                }
+              />
+            </fieldset>
+          )}
+          <fieldset className="flex items-center gap-2">
+            <label>Amount:</label>
+            <input
+              className="border flex-1"
+              type="number"
+              min={0}
+              value={amount}
+              onChange={(e: ChangeEvent<HTMLInputElement>) =>
+                setAmount(e.target.value)
+              }
+            />
+          </fieldset>
+        </>
+      )}
+
       {ixType === 'unbrick' && (
         <fieldset className="flex items-center gap-2">
           <label>Add SOL to use:</label>
           <input
-            className="border"
+            className="border flex-1"
             type="number"
             step={0.01}
             min={MIN_SOL_FOR_UNBRICK}
-            value={solForUnbrick}
+            value={amount}
             onChange={(e: ChangeEvent<HTMLInputElement>) =>
-              setSolForUnbrick(e.target.value)
+              setAmount(e.target.value)
             }
           />
         </fieldset>
