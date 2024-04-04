@@ -3,8 +3,10 @@
 import { isPublicKey } from '@metaplex-foundation/umi';
 import { base58 } from '@metaplex-foundation/umi/serializers';
 import {
+  AuthorityType,
   TOKEN_PROGRAM_ID,
   createCloseAccountInstruction,
+  createSetAuthorityInstruction,
   createTransferInstruction,
   getAssociatedTokenAddressSync,
   getMint,
@@ -429,6 +431,7 @@ type AddInstructionType =
   | 'create-ata'
   | 'transfer-sol'
   | 'transfer-spl'
+  | 'set-authority-spl'
   | 'unbrick'
   | 'brick';
 
@@ -452,6 +455,12 @@ function ModalAddInstruction({
   const [to, setTo] = useState('');
   const [amount, setAmount] = useState('');
   const [mint, setMint] = useState('');
+  const fromOwner = useMemo(
+    () =>
+      preview?.addresses.find((a) => a.pubkey === from)?.owner?.toBase58() ||
+      '',
+    [from, preview]
+  );
 
   const handleAddATA = useCallback(() => {
     setDecoded({
@@ -510,6 +519,22 @@ function ModalAddInstruction({
       ],
     });
   }, [connection, decoded, from, to, amount, mint]);
+
+  const handleAddSetAuthoritySPL = useCallback(async () => {
+    const owner = preview?.addresses.find((a) => a.pubkey === from)?.owner!;
+    setDecoded({
+      ...decoded!,
+      instructions: [
+        ...decoded!.instructions,
+        createSetAuthorityInstruction(
+          new PublicKey(from),
+          owner,
+          AuthorityType.AccountOwner,
+          new PublicKey(to)
+        ),
+      ],
+    });
+  }, [decoded, from, to, preview]);
 
   const MIN_SOL_FOR_UNBRICK = 0.005;
   const handleAddUnbrick = useCallback(() => {
@@ -571,6 +596,8 @@ function ModalAddInstruction({
           isPublicKey(to) &&
           isPublicKey(mint)
         );
+      case 'set-authority-spl':
+        return isPublicKey(from) && isPublicKey(to);
       case 'unbrick':
         return parseFloat(amount) >= MIN_SOL_FOR_UNBRICK;
       case 'brick':
@@ -595,6 +622,8 @@ function ModalAddInstruction({
             return handleAddTransferSOL();
           case 'transfer-spl':
             return handleAddTransferSPL();
+          case 'set-authority-spl':
+            return handleAddSetAuthoritySPL();
           case 'unbrick':
             return handleAddUnbrick();
           case 'brick':
@@ -619,6 +648,7 @@ function ModalAddInstruction({
           <option value="create-ata">Create Token Account</option>
           <option value="transfer-sol">Transfer SOL</option>
           <option value="transfer-spl">Transfer Tokens</option>
+          <option value="set-authority-spl">Set Authority Token Account</option>
           <option value="unbrick">Unbrick</option>
           <option value="brick">Brick</option>
         </select>
@@ -647,6 +677,67 @@ function ModalAddInstruction({
               ))}
           </select>
         </fieldset>
+      )}
+      {ixType === 'set-authority-spl' && (
+        <>
+          <div className="bg-warning p-2">
+            Be careful! This may cause irreversible changes if transferred to a
+            wallet you do not control. Proceed with caution.
+          </div>
+          <fieldset className="flex items-center gap-2">
+            <label>Token Account:</label>
+            <select
+              className="border flex-1"
+              value={from}
+              onChange={(e: ChangeEvent<HTMLSelectElement>) =>
+                setFrom(e.target.value)
+              }
+            >
+              <option value="" disabled>
+                Pick
+              </option>
+              {preview?.addresses
+                .filter((a) => a.isTokenAccount)
+                .map((a) => (
+                  <option key={a.pubkey} value={a.pubkey}>
+                    {ellipsify(a.pubkey)}
+                  </option>
+                ))}
+            </select>
+          </fieldset>
+          <fieldset className="flex items-center gap-2">
+            <label>From:</label>
+            <select disabled value={fromOwner} className="border flex-1">
+              <option>Other</option>
+              <option value={wallet.publicKey?.toBase58()}>
+                Compromised wallet
+              </option>
+              <option value={feePayer.publicKey?.toBase58()}>
+                Safe wallet
+              </option>
+            </select>
+          </fieldset>
+          <fieldset className="flex items-center gap-2">
+            <label>To:</label>
+            <select
+              className="border flex-1"
+              value={to}
+              onChange={(e: ChangeEvent<HTMLSelectElement>) => {
+                setTo(e.target.value);
+              }}
+            >
+              <option value="" disabled>
+                Pick
+              </option>
+              <option value={wallet.publicKey?.toBase58()}>
+                Compromised wallet
+              </option>
+              <option value={feePayer.publicKey?.toBase58()}>
+                Safe wallet
+              </option>
+            </select>
+          </fieldset>
+        </>
       )}
       {(ixType === 'transfer-sol' || ixType === 'transfer-spl') && (
         <>
