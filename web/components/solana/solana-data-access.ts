@@ -4,21 +4,22 @@ import {
   Connection,
   SendOptions,
   Transaction,
-  TransactionExpiredBlockheightExceededError,
   VersionedTransaction,
 } from '@solana/web3.js';
 
 export async function resendAndConfirmTransaction({
   connection,
   transaction,
-  lastValidBlockHeight,
   signature,
+  blockhash,
+  lastValidBlockHeight,
   commitment = 'confirmed',
 }: {
   connection: Connection;
   transaction: Transaction | VersionedTransaction;
-  lastValidBlockHeight: number;
   signature: string;
+  blockhash: string;
+  lastValidBlockHeight: number;
   commitment?: Commitment;
 }) {
   const options: SendOptions = {
@@ -26,35 +27,32 @@ export async function resendAndConfirmTransaction({
     skipPreflight: true,
   };
   let retries = 0;
-  const getBackoff = (retries: number) => 1000 * (1 + 1 * retries);
-  let blockHeight = await connection.getBlockHeight(commitment);
-  do {
-    await sleep(getBackoff(retries));
+  const getBackoff = (retries: number) => 3000;
 
-    const status = await connection.getSignatureStatus(signature);
-    if (status?.value) {
-      if (status.value.err) {
-        throw status.value.err;
-      }
-      return signature;
-    }
-
-    if (transaction instanceof VersionedTransaction) {
-      signature = await connection.sendTransaction(transaction, options);
-    } else {
-      signature = await connection.sendRawTransaction(
-        transaction.serialize(),
-        options
-      );
-    }
-
-    retries++;
-    if (retries >= 10) {
-      blockHeight = await connection.getBlockHeight(commitment);
-    }
-  } while (blockHeight < lastValidBlockHeight);
-
-  throw new TransactionExpiredBlockheightExceededError(signature);
+  const result = { done: false };
+  try {
+    await Promise.race([
+      connection.confirmTransaction(
+        { signature, blockhash, lastValidBlockHeight },
+        commitment
+      ),
+      new Promise(async () => {
+        while (!result.done) {
+          await sleep(getBackoff(retries));
+          if (transaction instanceof VersionedTransaction) {
+            signature = await connection.sendTransaction(transaction, options);
+          } else {
+            signature = await connection.sendRawTransaction(
+              transaction.serialize(),
+              options
+            );
+          }
+        }
+      }),
+    ]);
+  } finally {
+    result.done = true;
+  }
 }
 
 function sleep(ms: number) {

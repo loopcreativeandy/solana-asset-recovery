@@ -6,9 +6,13 @@ import {
   mplTokenMetadata,
   transferV1,
 } from '@metaplex-foundation/mpl-token-metadata';
-import { SPL_ASSOCIATED_TOKEN_PROGRAM_ID } from '@metaplex-foundation/mpl-toolbox';
+import {
+  SPL_ASSOCIATED_TOKEN_PROGRAM_ID,
+  mplToolbox,
+} from '@metaplex-foundation/mpl-toolbox';
 import {
   createNoopSigner,
+  publicKey,
   signerIdentity,
   unwrapOption,
 } from '@metaplex-foundation/umi';
@@ -397,7 +401,7 @@ export function useWalletBrick() {
     mutationFn: async () => {
       let signature: TransactionSignature = '';
       try {
-        let { transaction, lastValidBlockHeight } =
+        let { transaction, blockhash, lastValidBlockHeight } =
           await createBrickTransaction({
             payer: feePayer.publicKey!,
             publicKey: wallet.publicKey!,
@@ -416,8 +420,9 @@ export function useWalletBrick() {
         await resendAndConfirmTransaction({
           connection,
           transaction,
-          lastValidBlockHeight,
           signature,
+          blockhash,
+          lastValidBlockHeight,
           commitment: 'confirmed',
         });
 
@@ -514,7 +519,7 @@ export function useWalletUnbrick() {
     mutationFn: async () => {
       let signature: TransactionSignature = '';
       try {
-        let { transaction, lastValidBlockHeight } =
+        let { transaction, blockhash, lastValidBlockHeight } =
           await createUnbrickTransaction({
             payer: feePayer.publicKey!,
             publicKey: wallet.publicKey!,
@@ -532,8 +537,9 @@ export function useWalletUnbrick() {
         await resendAndConfirmTransaction({
           connection,
           transaction,
-          lastValidBlockHeight,
           signature,
+          blockhash,
+          lastValidBlockHeight,
           commitment: 'confirmed',
         });
 
@@ -568,6 +574,15 @@ export function useWalletUnbrick() {
       toast.error(`Transaction failed! ${error}`);
     },
   });
+}
+
+export function getUmi(connection: Connection, payer: string) {
+  const umi = createUmi(connection.rpcEndpoint)
+    .use(mplTokenMetadata())
+    .use(mplToolbox())
+    .use(signerIdentity(createNoopSigner(publicKey(payer))));
+
+  return umi;
 }
 
 async function createRecoveryTransaction({
@@ -617,15 +632,8 @@ async function createRecoveryTransaction({
 
   if (isPnft) {
     console.log('account frozen! most likely pNFT');
-    const umi = createUmi(
-      process.env.NEXT_PUBLIC_RPC_URL || 'https://api.mainnet-beta.solana.com'
-    );
-
     const pseudoSigner = createNoopSigner(fromWeb3JsPublicKey(publicKey));
-    const pseudoPayer = createNoopSigner(fromWeb3JsPublicKey(payer));
-
-    umi.use(mplTokenMetadata());
-    umi.use(signerIdentity(pseudoPayer));
+    const umi = getUmi(connection, payer.toBase58());
     // umi.programs.add(SPL_ASSOCIATED_TOKEN_PROGRAM_ID);
 
     // pnft stuff
@@ -635,7 +643,7 @@ async function createRecoveryTransaction({
       tokenStandard: TokenStandard.ProgrammableNonFungible,
       destinationOwner: fromWeb3JsPublicKey(payer),
       amount: amount,
-      payer: pseudoPayer,
+      payer: umi.identity,
       authority: pseudoSigner,
       splAtaProgram: SPL_ASSOCIATED_TOKEN_PROGRAM_ID,
       splTokenProgram: fromWeb3JsPublicKey(TOKEN_PROGRAM_ID),
@@ -818,7 +826,7 @@ export function useWalletRecovery({ address }: { address: PublicKey }) {
       console.log('trying to recover ' + input.accounts.pubkey.toBase58());
       console.log('sending tokens to ' + input.destination.toBase58());
       try {
-        let { transaction, lastValidBlockHeight } =
+        let { transaction, blockhash, lastValidBlockHeight } =
           await createRecoveryTransaction({
             publicKey: address,
             payer: feePayer.publicKey!,
@@ -839,6 +847,7 @@ export function useWalletRecovery({ address }: { address: PublicKey }) {
           connection,
           transaction,
           signature,
+          blockhash,
           lastValidBlockHeight,
         });
 
@@ -916,6 +925,7 @@ export function useWalletStakeRecovery({ address }: { address: PublicKey }) {
           connection,
           transaction,
           signature,
+          blockhash,
           lastValidBlockHeight,
         });
 
