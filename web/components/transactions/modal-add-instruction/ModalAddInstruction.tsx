@@ -500,13 +500,26 @@ export default function ModalAddInstruction({
             </fieldset>
             <fieldset className="flex items-center gap-2">
               <label>Account:</label>
-              <input
+              <select
                 className="border flex-1"
                 value={to}
-                onChange={(e: ChangeEvent<HTMLInputElement>) => {
+                onChange={(e: ChangeEvent<HTMLSelectElement>) => {
                   setTo(e.target.value);
                 }}
-              />
+              >
+                <option value="" disabled>
+                  Pick
+                </option>
+                {preview?.addresses
+                  .filter((a) => a.writable)
+                  .sort((a, b) => a.before.lamports - b.before.lamports)
+                  .map((a) => (
+                    <option key={a.pubkey} value={a.pubkey}>
+                      {ellipsify(a.pubkey)} (
+                      {a.before.lamports / LAMPORTS_PER_SOL} SOL)
+                    </option>
+                  ))}
+              </select>
             </fieldset>
             <fieldset className="flex items-center gap-2">
               <label>Bytes:</label>

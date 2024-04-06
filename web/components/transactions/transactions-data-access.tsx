@@ -205,6 +205,7 @@ export type SimulateResult = SimulatedTransactionResponse & {
       tokenAmount?: Number;
       lamports: number;
     };
+    writable: boolean;
   }[];
 };
 
@@ -333,6 +334,11 @@ export async function simulateTransaction(
               : undefined,
           lamports: afterAcc?.lamports || 0,
         },
+        writable: decodedTransaction.instructions.some((i) =>
+          i.keys.some(
+            (a) => a.pubkey.toBase58() === pubkey.toBase58() && a.isWritable
+          )
+        ),
       };
     }),
   };
