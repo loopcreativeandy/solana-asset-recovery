@@ -1,7 +1,6 @@
 'use client';
 
 import { TOKEN_PROGRAM_ID } from '@solana/spl-token';
-import { useWallet } from '@solana/wallet-adapter-react';
 import {
   AccountInfo,
   LAMPORTS_PER_SOL,
@@ -13,6 +12,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useCallback, useMemo, useState } from 'react';
 import { useCluster } from '../cluster/cluster-data-access';
 import { ExplorerLink } from '../cluster/cluster-ui';
+import { useCompromisedContext } from '../compromised/compromised.provider';
 import { useFeePayerContext } from '../fee-payer/fee-payer.provider';
 import { AppModal, ellipsify } from '../ui/ui-layout';
 import {
@@ -45,7 +45,7 @@ export function AccountBalance({ address }: { address: PublicKey }) {
   );
 }
 export function AccountChecker() {
-  const { publicKey } = useWallet();
+  const { publicKey } = useCompromisedContext();
   if (!publicKey) {
     return null;
   }
@@ -89,7 +89,7 @@ export function AccountButtons({
   canBrick: boolean;
   canUnbrick: boolean;
 }) {
-  const wallet = useWallet();
+  const wallet = useCompromisedContext();
   const { cluster } = useCluster();
   const [showAirdropModal, setShowAirdropModal] = useState(false);
   const [showReceiveModal, setShowReceiveModal] = useState(false);
@@ -745,7 +745,7 @@ function ModalSend({
   show: boolean;
   address: PublicKey;
 }) {
-  const wallet = useWallet();
+  const wallet = useCompromisedContext();
   const mutation = useTransferSol({ address });
   const [destination, setDestination] = useState('');
   const [amount, setAmount] = useState('1');

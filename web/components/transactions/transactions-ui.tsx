@@ -1,14 +1,15 @@
 'use client';
 
 import { base58 } from '@metaplex-foundation/umi/serializers';
-import { useConnection, useWallet } from '@solana/wallet-adapter-react';
+import { useConnection } from '@solana/wallet-adapter-react';
 import { AccountMeta, LAMPORTS_PER_SOL, PublicKey } from '@solana/web3.js';
 import { useEffect, useState } from 'react';
 import { ExplorerLink } from '../cluster/cluster-ui';
+import { useCompromisedContext } from '../compromised/compromised.provider';
+import { CompromisedWalletButton } from '../compromised/compromised.ui';
 import { useFeePayerContext } from '../fee-payer/fee-payer.provider';
 import { FeePayerWalletButton } from '../fee-payer/fee-payer.ui';
 import { resendAndConfirmTransaction } from '../solana/solana-data-access';
-import { WalletButton } from '../solana/solana-provider';
 import { ellipsify, useTransactionToast } from '../ui/ui-layout';
 import ModalAddInstruction from './modal-add-instruction/ModalAddInstruction';
 import {
@@ -25,7 +26,7 @@ enum Routing {
 }
 
 export function TransactionUi() {
-  const wallet = useWallet();
+  const wallet = useCompromisedContext();
   const { connection } = useConnection();
   const feePayer = useFeePayerContext();
 
@@ -33,8 +34,13 @@ export function TransactionUi() {
 
   const [signature, setSignature] = useState('');
   const [payload, setPayload] = useState('');
-  const [decoded, setDecoded] = useState<DecodedTransaction | undefined>();
-  const [showAddInstructionModal, setShowAddInstructionModal] = useState(false);
+  const [decoded, setDecoded] = useState<DecodedTransaction>({
+    blockhash: '',
+    instructions: [],
+    signatures: [],
+    needsExtraSigner: false,
+    version: 0,
+  });
   const [preview, setPreview] = useState<SimulateResult | undefined>();
   const [routing, setRouting] = useState<Routing | undefined>();
   const [error, setError] = useState('');
@@ -137,7 +143,7 @@ export function TransactionUi() {
     <div>
       <div className="flex gap-2 items-center justify-center">
         <h2 className="text-xl font-bold">Compromised wallet:</h2>
-        <WalletButton />
+        <CompromisedWalletButton />
       </div>
       <div className="space-y-2 mt-2">
         <div>

@@ -1,9 +1,9 @@
-import './global.css';
-import { UiLayout } from '@/components/ui/ui-layout';
 import { ClusterProvider } from '@/components/cluster/cluster-data-access';
-import { SolanaProvider } from '@/components/solana/solana-provider';
-import { Provider } from './provider';
+import { CompromisedProvider } from '@/components/compromised/compromised.provider';
 import { FeePayerProvider } from '@/components/fee-payer/fee-payer.provider';
+import { UiLayout } from '@/components/ui/ui-layout';
+import './global.css';
+import { Provider } from './provider';
 
 export const metadata = {
   title: 'recovery tool',
@@ -21,9 +21,9 @@ export default function RootLayout({
         <Provider>
           <ClusterProvider>
             <FeePayerProvider>
-              <SolanaProvider localStorageKey="compromised">
+              <CompromisedProvider>
                 <UiLayout>{children}</UiLayout>
-              </SolanaProvider>
+              </CompromisedProvider>
             </FeePayerProvider>
           </ClusterProvider>
         </Provider>

@@ -262,14 +262,17 @@ export async function simulateTransaction(
       typeof (data as string[])?.at(0) === 'string'
         ? base64.serialize((data as string[])[0])
         : (data as Buffer);
-    if (owner.equals(TOKEN_PROGRAM_ID) && data.length === ACCOUNT_SIZE) {
+    if (owner.equals(TOKEN_PROGRAM_ID) && dataUint.length === ACCOUNT_SIZE) {
       return {
         owner,
         lamports,
         type: 'token-account',
         acc: AccountLayout.decode(dataUint),
       };
-    } else if (owner.equals(TOKEN_PROGRAM_ID) && data.length === MINT_SIZE) {
+    } else if (
+      owner.equals(TOKEN_PROGRAM_ID) &&
+      dataUint.length === MINT_SIZE
+    ) {
       return {
         owner,
         lamports,

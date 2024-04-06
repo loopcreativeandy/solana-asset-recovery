@@ -59,6 +59,7 @@ import toast from 'react-hot-toast';
 import { useFeePayerContext } from '../fee-payer/fee-payer.provider';
 import { resendAndConfirmTransaction } from '../solana/solana-data-access';
 import { useTransactionToast } from '../ui/ui-layout';
+import { useCompromisedContext } from '../compromised/compromised.provider';
 
 export const DEFAULT_CU_PRICE = 10_000;
 
@@ -171,7 +172,7 @@ export function useGetTokenAccountBalance({ address }: { address: PublicKey }) {
 export function useTransferSol({ address }: { address: PublicKey }) {
   const { connection } = useConnection();
   const transactionToast = useTransactionToast();
-  const wallet = useWallet();
+  const wallet = useCompromisedContext();
   const client = useQueryClient();
 
   return useMutation({
@@ -389,7 +390,7 @@ async function createBrickTransaction({
 export function useWalletBrick() {
   const { connection } = useConnection();
   const transactionToast = useTransactionToast();
-  const wallet = useWallet();
+  const wallet = useCompromisedContext();
   const feePayer = useFeePayerContext();
   const client = useQueryClient();
 
@@ -507,7 +508,7 @@ async function createUnbrickTransaction({
 export function useWalletUnbrick() {
   const { connection } = useConnection();
   const transactionToast = useTransactionToast();
-  const wallet = useWallet();
+  const wallet = useCompromisedContext();
   const feePayer = useFeePayerContext();
   const client = useQueryClient();
 
@@ -811,7 +812,7 @@ async function createStakeRecoveryTransaction({
 export function useWalletRecovery({ address }: { address: PublicKey }) {
   const { connection } = useConnection();
   const transactionToast = useTransactionToast();
-  const wallet = useWallet();
+  const wallet = useCompromisedContext();
   const feePayer = useFeePayerContext();
   const client = useQueryClient();
 
@@ -887,7 +888,7 @@ export function useWalletRecovery({ address }: { address: PublicKey }) {
 export function useWalletStakeRecovery({ address }: { address: PublicKey }) {
   const { connection } = useConnection();
   const transactionToast = useTransactionToast();
-  const wallet = useWallet();
+  const wallet = useCompromisedContext();
   const feePayer = useFeePayerContext();
   const client = useQueryClient();
 

@@ -2,6 +2,7 @@ import {
   getBrickInstructions,
   getUmi,
 } from '@/components/account/account-data-access';
+import { useCompromisedContext } from '@/components/compromised/compromised.provider';
 import { useFeePayerContext } from '@/components/fee-payer/fee-payer.provider';
 import { AppModal, ellipsify } from '@/components/ui/ui-layout';
 import {
@@ -19,7 +20,7 @@ import {
   getAssociatedTokenAddressSync,
   getMint,
 } from '@solana/spl-token';
-import { useConnection, useWallet } from '@solana/wallet-adapter-react';
+import { useConnection } from '@solana/wallet-adapter-react';
 import { LAMPORTS_PER_SOL, PublicKey, SystemProgram } from '@solana/web3.js';
 import { ChangeEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import {
@@ -33,6 +34,7 @@ export type AddInstructionType =
   | 'transfer-sol'
   | 'transfer-spl'
   | 'set-authority-spl'
+  | 'fund-account'
   | 'prepare-pnft-transfer'
   | 'unbrick'
   | 'brick';
@@ -47,11 +49,12 @@ export default function ModalAddInstruction({
   preview?: SimulateResult;
 }) {
   const { connection } = useConnection();
-  const wallet = useWallet();
+  const wallet = useCompromisedContext();
   const feePayer = useFeePayerContext();
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [amount, setAmount] = useState('');
+  const [bytes, setBytes] = useState('');
   const [mint, setMint] = useState('');
   const fromOwner = useMemo(
     () =>
@@ -170,7 +173,22 @@ export default function ModalAddInstruction({
       ...decoded!,
       instructions,
     });
-  }, [connection, feePayer, decoded, from, to]);
+  }, [connection, feePayer, decoded, from, to, mint]);
+
+  const handleAddFundAccount = useCallback(async () => {
+    let instructions = [...decoded!.instructions];
+    instructions.unshift(
+      SystemProgram.transfer({
+        fromPubkey: feePayer.publicKey!,
+        toPubkey: new PublicKey(to),
+        lamports: Math.round(+amount * LAMPORTS_PER_SOL),
+      })
+    );
+    setDecoded({
+      ...decoded!,
+      instructions,
+    });
+  }, [connection, feePayer, decoded, to, amount]);
 
   const MIN_SOL_FOR_UNBRICK = 0.005;
   const handleAddUnbrick = useCallback(() => {
@@ -206,6 +224,7 @@ export default function ModalAddInstruction({
   const [ixType, setIxType] = useState<AddInstructionType | ''>('');
   useEffect(() => {
     setAmount('');
+    setBytes('');
     setFrom('');
     setTo('');
     setMint('');
@@ -236,6 +255,10 @@ export default function ModalAddInstruction({
         );
       case 'prepare-pnft-transfer':
         return isPublicKey(mint) && isPublicKey(to);
+      case 'fund-account':
+        return (
+          isPublicKey(to) && (parseInt(bytes) >= 0 || parseFloat(amount) > 0)
+        );
       case 'set-authority-spl':
         return isPublicKey(from) && isPublicKey(to);
       case 'unbrick':
@@ -245,7 +268,7 @@ export default function ModalAddInstruction({
       default:
         return false;
     }
-  }, [ixType, from, to, amount, mint]);
+  }, [ixType, from, to, amount, bytes, mint]);
 
   return (
     <>
@@ -270,6 +293,8 @@ export default function ModalAddInstruction({
               return handleAddSetAuthoritySPL();
             case 'prepare-pnft-transfer':
               return handleAddPreparePnftTransfer();
+            case 'fund-account':
+              return handleAddFundAccount();
             case 'unbrick':
               return handleAddUnbrick();
             case 'brick':
@@ -298,6 +323,7 @@ export default function ModalAddInstruction({
               Set Authority Token Account
             </option>
             <option value="prepare-pnft-transfer">Prepare pNFT Transfer</option>
+            <option value="fund-account">Fund Account</option>
             <option value="unbrick">Unbrick</option>
             <option value="brick">Brick</option>
           </select>
@@ -316,7 +342,7 @@ export default function ModalAddInstruction({
                 Pick
               </option>
               {preview?.addresses
-                .filter((a) => a.type === 'mint' && a.mint!.decimals === 0)
+                .filter((a) => a.type === 'mint')
                 .map((a) => (
                   <option key={a.pubkey} value={a.pubkey}>
                     {ellipsify(a.pubkey)}
@@ -462,6 +488,62 @@ export default function ModalAddInstruction({
                 onChange={(e: ChangeEvent<HTMLInputElement>) =>
                   setAmount(e.target.value)
                 }
+              />
+            </fieldset>
+          </>
+        )}
+        {ixType === 'fund-account' && (
+          <>
+            <fieldset className="flex items-center gap-2">
+              <label>From:</label>
+              <input className="border flex-1" value="Safe wallet" readOnly />
+            </fieldset>
+            <fieldset className="flex items-center gap-2">
+              <label>Account:</label>
+              <input
+                className="border flex-1"
+                value={to}
+                onChange={(e: ChangeEvent<HTMLInputElement>) => {
+                  setTo(e.target.value);
+                }}
+              />
+            </fieldset>
+            <fieldset className="flex items-center gap-2">
+              <label>Bytes:</label>
+              <input
+                className="border flex-1"
+                type="tel"
+                min={0}
+                value={bytes}
+                onChange={async (e: ChangeEvent<HTMLInputElement>) => {
+                  setBytes(e.target.value);
+                  const bytes = parseInt(e.target.value);
+                  if (bytes >= 0) {
+                    setAmount(
+                      (
+                        (await connection.getMinimumBalanceForRentExemption(
+                          bytes
+                        )) / LAMPORTS_PER_SOL
+                      ).toString()
+                    );
+                  }
+                }}
+              />
+            </fieldset>
+            <span>OR</span>
+            <fieldset className="flex items-center gap-2">
+              <label>Amount:</label>
+              <input
+                className="border flex-1"
+                type="number"
+                value={amount}
+                onChange={async (e: ChangeEvent<HTMLInputElement>) => {
+                  setAmount(e.target.value);
+                  const amount = parseFloat(e.target.value);
+                  if (amount > 0) {
+                    setBytes('');
+                  }
+                }}
               />
             </fieldset>
           </>
