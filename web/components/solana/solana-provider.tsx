@@ -4,10 +4,7 @@ import dynamic from 'next/dynamic';
 
 import { WalletError } from '@solana/wallet-adapter-base';
 import {
-  AnchorWallet,
   ConnectionProvider,
-  useConnection,
-  useWallet,
   WalletProvider,
 } from '@solana/wallet-adapter-react';
 import { WalletModalProvider } from '@solana/wallet-adapter-react-ui';

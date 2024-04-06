@@ -1,15 +1,22 @@
 'use client';
 
+import { uniqueBy } from '@metaplex-foundation/umi';
 import { base64 } from '@metaplex-foundation/umi/serializers';
 import {
   ACCOUNT_SIZE,
   ASSOCIATED_TOKEN_PROGRAM_ID,
   AccountLayout,
+  MINT_SIZE,
+  MintLayout,
+  RawAccount,
+  RawMint,
   TOKEN_PROGRAM_ID,
   createAssociatedTokenAccountInstruction,
   getAssociatedTokenAddressSync,
 } from '@solana/spl-token';
+import { WalletContextState } from '@solana/wallet-adapter-react';
 import {
+  AccountInfo,
   AddressLookupTableAccount,
   ComputeBudgetInstruction,
   ComputeBudgetProgram,
@@ -17,6 +24,7 @@ import {
   Keypair,
   PublicKey,
   SignaturePubkeyPair,
+  SimulatedTransactionAccountInfo,
   SimulatedTransactionResponse,
   SystemProgram,
   Transaction,
@@ -30,8 +38,6 @@ import {
   PriorityLevel,
   getPriorityFeeEstimate,
 } from '../solana/solana-data-access';
-import { WalletContextState } from '@solana/wallet-adapter-react';
-import { uniqueBy } from '@metaplex-foundation/umi';
 
 export type DecodedTransaction = {
   version: 'legacy' | 0;
@@ -187,12 +193,19 @@ export function move<T>(arr: T[], index: number, offset: number) {
 export type SimulateResult = SimulatedTransactionResponse & {
   addresses: {
     pubkey: string;
-    isTokenAccount: boolean;
+    type?: 'token-account' | 'mint';
+    tokenAccount?: RawAccount;
+    mint?: RawMint;
     owner?: PublicKey;
-    before?: bigint | number;
-    beforeLamports: number;
-    after?: bigint | number;
-    afterLamports: number;
+    before: {
+      tokenAmount?: Number;
+      lamports: number;
+    };
+    after: {
+      tokenAmount?: Number;
+      lamports: number;
+    };
+    writable: boolean;
   }[];
 };
 
@@ -227,6 +240,53 @@ export async function simulateTransaction(
     (a, b) => a === b
   );
 
+  function parseAccount(
+    acc:
+      | AccountInfo<Buffer>
+      | SimulatedTransactionAccountInfo
+      | null
+      | undefined
+  ):
+    | null
+    | (Pick<AccountInfo<Buffer>, 'owner' | 'lamports'> &
+        (
+          | { type: undefined }
+          | { type: 'token-account'; acc: RawAccount }
+          | { type: 'mint'; acc: RawMint }
+        )) {
+    if (!acc) {
+      return null;
+    }
+    let { owner, data, lamports } = acc;
+    owner = owner instanceof PublicKey ? owner : new PublicKey(acc.owner);
+    const dataUint =
+      typeof (data as string[])?.at(0) === 'string'
+        ? base64.serialize((data as string[])[0])
+        : (data as Buffer);
+    if (owner.equals(TOKEN_PROGRAM_ID) && dataUint.length === ACCOUNT_SIZE) {
+      return {
+        owner,
+        lamports,
+        type: 'token-account',
+        acc: AccountLayout.decode(dataUint),
+      };
+    } else if (
+      owner.equals(TOKEN_PROGRAM_ID) &&
+      dataUint.length === MINT_SIZE
+    ) {
+      return {
+        owner,
+        lamports,
+        type: 'mint',
+        acc: MintLayout.decode(dataUint),
+      };
+    }
+    return {
+      owner: new PublicKey(owner),
+      lamports,
+      type: undefined,
+    };
+  }
   const before = await connection.getMultipleAccountsInfo(addresses);
   const { value: result } = await connection.simulateTransaction(tx, {
     replaceRecentBlockhash: true,
@@ -240,28 +300,45 @@ export async function simulateTransaction(
   return {
     ...result,
     addresses: addresses.map((pubkey, ix) => {
-      const isTokenAccount =
-        before[ix]?.owner?.toBase58() === TOKEN_PROGRAM_ID.toBase58() &&
-        before[ix]?.data.length === ACCOUNT_SIZE;
+      const beforeAcc = parseAccount(before[ix]);
+      const afterAcc = parseAccount(result.accounts?.[ix]);
+      let owner =
+        beforeAcc?.type === 'token-account'
+          ? beforeAcc.owner
+          : afterAcc?.type === 'token-account'
+          ? afterAcc.owner
+          : beforeAcc?.owner || afterAcc?.owner;
       return {
         pubkey: pubkey.toBase58(),
-        isTokenAccount,
-        owner: isTokenAccount
-          ? AccountLayout.decode(before[ix]!.data).owner
-          : before[ix]?.owner,
-        before:
-          isTokenAccount && before[ix]!.data
-            ? AccountLayout.decode(before[ix]!.data).amount
-            : before[ix]?.lamports,
-        beforeLamports: before[ix]?.lamports || 0,
-        after:
-          isTokenAccount &&
-          result.accounts?.[ix]?.owner === TOKEN_PROGRAM_ID.toBase58()
-            ? AccountLayout.decode(
-                base64.serialize(result.accounts![ix]!.data[0])
-              ).amount
-            : result.accounts?.[ix]?.lamports,
-        afterLamports: result.accounts?.[ix]?.lamports || 0,
+        type: beforeAcc?.type || afterAcc?.type,
+        mint:
+          (beforeAcc?.type === 'mint' && beforeAcc.acc) ||
+          (afterAcc?.type === 'mint' && afterAcc.acc) ||
+          undefined,
+        tokenAccount:
+          (beforeAcc?.type === 'token-account' && beforeAcc.acc) ||
+          (afterAcc?.type === 'token-account' && afterAcc.acc) ||
+          undefined,
+        owner,
+        before: {
+          tokenAmount:
+            beforeAcc?.type === 'token-account'
+              ? Number(beforeAcc.acc.amount)
+              : undefined,
+          lamports: beforeAcc?.lamports || 0,
+        },
+        after: {
+          tokenAmount:
+            afterAcc?.type === 'token-account'
+              ? Number(afterAcc.acc.amount)
+              : undefined,
+          lamports: afterAcc?.lamports || 0,
+        },
+        writable: decodedTransaction.instructions.some((i) =>
+          i.keys.some(
+            (a) => a.pubkey.toBase58() === pubkey.toBase58() && a.isWritable
+          )
+        ),
       };
     }),
   };
@@ -269,7 +346,6 @@ export async function simulateTransaction(
 
 export async function buildTransactionFromPayload(
   connection: Connection,
-  wallet: PublicKey,
   decodedTransaction: DecodedTransaction,
   feepayer: WalletContextState,
   preview: SimulateResult

@@ -6,11 +6,11 @@ import { useMemo } from 'react';
 import { redirect, useParams } from 'next/navigation';
 
 import { AccountLayout, TOKEN_PROGRAM_ID } from '@solana/spl-token';
-import { useWallet } from '@solana/wallet-adapter-react';
 import { ExplorerLink } from '../cluster/cluster-ui';
+import { useCompromisedContext } from '../compromised/compromised.provider';
+import { CompromisedWalletButton } from '../compromised/compromised.ui';
 import { useFeePayerContext } from '../fee-payer/fee-payer.provider';
 import { FeePayerWalletButton } from '../fee-payer/fee-payer.ui';
-import { WalletButton } from '../solana/solana-provider';
 import { AppHero, ellipsify } from '../ui/ui-layout';
 import { useGetAccount } from './account-data-access';
 import {
@@ -40,7 +40,7 @@ export default function AccountDetailFeature() {
     [query.data]
   );
 
-  const wallet = useWallet();
+  const wallet = useCompromisedContext();
   const feePayer = useFeePayerContext();
 
   if (
@@ -61,7 +61,7 @@ export default function AccountDetailFeature() {
         title={
           <div className="flex gap-2 items-center justify-center">
             <h2 className="text-xl font-bold">Compromised wallet:</h2>
-            <WalletButton />
+            <CompromisedWalletButton />
           </div>
         }
         subtitle={

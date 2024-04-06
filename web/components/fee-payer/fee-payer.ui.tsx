@@ -1,16 +1,16 @@
 'use client';
 
 import { OutPortal } from 'react-reverse-portal';
-import { useFeePayerContext, useFeePayerUIContext } from './fee-payer.provider';
-import { useWallet } from '@solana/wallet-adapter-react';
-import { ExplorerLink } from '../cluster/cluster-ui';
-import { ellipsify } from '../ui/ui-layout';
 import { AccountBalance } from '../account/account-ui';
+import { ExplorerLink } from '../cluster/cluster-ui';
+import { useCompromisedContext } from '../compromised/compromised.provider';
+import { ellipsify } from '../ui/ui-layout';
+import { useFeePayerContext, useFeePayerUIContext } from './fee-payer.provider';
 
 export function FeePayerWalletButton() {
   const portalNode = useFeePayerUIContext();
   const feePayer = useFeePayerContext();
-  const wallet = useWallet();
+  const wallet = useCompromisedContext();
 
   return (
     <>
