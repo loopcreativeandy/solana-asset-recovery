@@ -1,7 +1,7 @@
 'use client';
 
 import { PublicKey, SystemProgram } from '@solana/web3.js';
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 
 import { redirect, useParams } from 'next/navigation';
 
@@ -11,7 +11,7 @@ import { useCompromisedContext } from '../compromised/compromised.provider';
 import { CompromisedWalletButton } from '../compromised/compromised.ui';
 import { useFeePayerContext } from '../fee-payer/fee-payer.provider';
 import { FeePayerWalletButton } from '../fee-payer/fee-payer.ui';
-import { AppHero, ellipsify } from '../ui/ui-layout';
+import { AppHero, AppModal, ellipsify } from '../ui/ui-layout';
 import { useGetAccount } from './account-data-access';
 import {
   AccountBalance,
@@ -73,6 +73,7 @@ export default function AccountDetailFeature() {
           </div>
         }
       >
+        <ModalHelp />
         {query.isFetched &&
           query.data?.owner &&
           query.data?.owner.toBase58() !==
@@ -132,5 +133,46 @@ export default function AccountDetailFeature() {
           )}
       </div>
     </div>
+  );
+}
+
+function ModalHelp() {
+  const [show, setShow] = useState(false);
+
+  return (
+    <>
+      <button
+        className="btn btn-circle btn-info text-2xl fixed top-20 right-2"
+        onClick={() => setShow(true)}
+      >
+        ?
+      </button>
+      <AppModal hide={() => setShow(false)} show={show} title="Account">
+        <div className="text-left">
+          <div className="mb-2 italic text-lg">
+            Recover assets from your compromised wallet to a safe one.
+          </div>
+
+          <summary>
+            Connect your compromised wallet and safe wallet at Step 1
+          </summary>
+          <summary>
+            Select the tokens, NFTs or stake accounts you're interested in
+            recovering and send them to your safe wallet.
+          </summary>
+          <summary>
+            Brick your wallet if your seed or private key was leaked. This will
+            prevent others from being able to use it for transactions that
+            requires this wallet to pay for rent (e.g. airdrop claims, close
+            positions). Please note its functionality is quite limited and it
+            won't stop from moving tokens or interacting with some protocols.
+          </summary>
+          <summary>
+            Unbrick your wallet (if you previously bricked it) to become a
+            regular wallet again.
+          </summary>
+        </div>
+      </AppModal>
+    </>
   );
 }

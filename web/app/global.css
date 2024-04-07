@@ -21,3 +21,7 @@ body {
   top: -0.5rem;
   transform: translateY(-100%);
 }
+
+a {
+  text-decoration: underline;
+}
