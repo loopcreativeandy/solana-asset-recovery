@@ -198,10 +198,12 @@ export type SimulateResult = SimulatedTransactionResponse & {
     mint?: RawMint;
     owner?: PublicKey;
     before: {
+      authority?: PublicKey;
       tokenAmount?: Number;
       lamports: number;
     };
     after: {
+      authority?: PublicKey;
       tokenAmount?: Number;
       lamports: number;
     };
@@ -321,6 +323,10 @@ export async function simulateTransaction(
           undefined,
         owner,
         before: {
+          authority:
+            beforeAcc?.type === 'token-account'
+              ? beforeAcc.acc.closeAuthority
+              : beforeAcc?.owner,
           tokenAmount:
             beforeAcc?.type === 'token-account'
               ? Number(beforeAcc.acc.amount)
@@ -328,6 +334,10 @@ export async function simulateTransaction(
           lamports: beforeAcc?.lamports || 0,
         },
         after: {
+          authority:
+            afterAcc?.type === 'token-account'
+              ? afterAcc.acc.closeAuthority
+              : afterAcc?.owner,
           tokenAmount:
             afterAcc?.type === 'token-account'
               ? Number(afterAcc.acc.amount)

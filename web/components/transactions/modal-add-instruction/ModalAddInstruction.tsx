@@ -58,8 +58,9 @@ export default function ModalAddInstruction({
   const [mint, setMint] = useState('');
   const fromOwner = useMemo(
     () =>
-      preview?.addresses.find((a) => a.pubkey === from)?.owner?.toBase58() ||
-      '',
+      preview?.addresses
+        .find((a) => a.pubkey === from)
+        ?.before.authority?.toBase58() || '',
     [from, preview]
   );
 
@@ -122,7 +123,8 @@ export default function ModalAddInstruction({
   }, [connection, decoded, from, to, amount, mint]);
 
   const handleAddSetAuthoritySPL = useCallback(async () => {
-    const owner = preview?.addresses.find((a) => a.pubkey === from)?.owner!;
+    const owner = preview?.addresses.find((a) => a.pubkey === from)?.before
+      .authority!;
     setDecoded({
       ...decoded!,
       instructions: [
