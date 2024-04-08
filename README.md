@@ -1,8 +1,21 @@
-# bricker
+# Solana Asset Recovery Tool
 
-This project is generated with the [create-solana-dapp](https://github.com/solana-developers/create-solana-dapp) generator.
+This tool was created to help "bricked" wallets (where owner got assigned away from the SystemProgram) move their assets to a save wallet (which is fully controlled by the user).
 
-## Getting Started
+This project was generated with the [create-solana-dapp](https://github.com/solana-developers/create-solana-dapp) generator.
+
+## Disclaimer
+USE AT YOUR OWN RISK!
+
+You can loose all your funds with this tool, so be careful with it.
+
+The developers of this tool shall not be held responsible for any damage or loss, financially or otherwise.
+
+## Deployment
+This tool has been deployed to 
+https://solana-asset-recovery.vercel.app/
+
+## Manual Installation
 
 ### Prerequisites
 
@@ -29,22 +42,23 @@ npm run install
 npm run dev
 ```
 
-## Apps
+## More Info
 
-### web
+### Videos
 
-This is a React app.
+The following videos showcase the usage of this tool:
 
-#### Commands
+ * https://youtu.be/4TLF_Qi154k
+ * https://youtu.be/wKHq_D3vI8A
+ * https://youtu.be/CeKM-y3U_yE
 
-Start the web app
+### Contact
 
-```shell
-npm run dev
-```
+The official X account of this tool:
 
-Build the web app
+[Sol Recovery Twitter](https://twitter.com/sol_recovery)
 
-```shell
-npm run build
-```
+Developed and maintained by
+ * [solandy](https://twitter.com/HeyAndyS)
+ * [rrivem](https://twitter.com/cryptorrivem)
+
