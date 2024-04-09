@@ -187,19 +187,28 @@ export function ellipsify(str = '', len = 4) {
   return str;
 }
 
+type TransactionToastStatus = 'sent' | 'confirmed';
+const toastMessages: Record<TransactionToastStatus, string> = {
+  sent: 'Sending transaction',
+  confirmed: 'Transaction confirmed',
+};
+const signatureToasts: Record<string, string> = {};
 export function useTransactionToast() {
   return (signature: string, status: 'sent' | 'confirmed') => {
+    toast.dismiss(signatureToasts[signature]);
     const method = status === 'confirmed' ? toast.success : toast.loading;
-    method(
+    signatureToasts[signature] = method(
       <div className={'text-center'}>
-        <div className="text-lg">Transaction {status}</div>
-        <ExplorerLink
-          path={`tx/${signature}`}
-          label={'View Transaction'}
-          className="btn btn-xs btn-primary"
-        />
+        <div className="text-lg">{toastMessages[status]}</div>
+        {status === 'confirmed' && (
+          <ExplorerLink
+            path={`tx/${signature}`}
+            label={'View Transaction'}
+            className="btn btn-xs btn-primary"
+          />
+        )}
       </div>,
-      { duration: 3000 }
+      status === 'confirmed' ? { duration: 3000 } : undefined
     );
   };
 }
