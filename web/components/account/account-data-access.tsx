@@ -28,6 +28,7 @@ import {
   createCloseAccountInstruction,
   createHarvestWithheldTokensToMintInstruction,
   createInitializeAccount3Instruction,
+  createInitializeAccountInstruction,
   createInitializeImmutableOwnerInstruction,
   createTransferCheckedInstruction,
   getAssociatedTokenAddressSync,
@@ -61,7 +62,7 @@ import { resendAndConfirmTransaction } from '../solana/solana-data-access';
 import { useTransactionToast } from '../ui/ui-layout';
 import { useCompromisedContext } from '../compromised/compromised.provider';
 
-export const DEFAULT_CU_PRICE = 10_000;
+export const DEFAULT_CU_PRICE = 200_000;
 
 export function useGetAccount({ address }: { address?: PublicKey }) {
   const { connection } = useConnection();
@@ -314,29 +315,21 @@ async function createTransaction({
   };
 }
 
+const ACCOUNT_SIZE = 165;
 export const TOKEN_ACCOUNT_LAMPORTS = Math.floor(0.00203928 * LAMPORTS_PER_SOL);
 export function getBrickInstructions(publicKey: PublicKey, payer: PublicKey) {
   const instructions = [
-    SystemProgram.allocate({
-      accountPubkey: publicKey,
-      programId: TOKEN_PROGRAM_ID,
-      space: 165,
-    }),
-    SystemProgram.assign({
-      accountPubkey: publicKey,
-      programId: TOKEN_PROGRAM_ID,
-    }),
-    createInitializeImmutableOwnerInstruction(publicKey, TOKEN_PROGRAM_ID),
-    SystemProgram.transfer({
+    SystemProgram.createAccount({
       fromPubkey: payer,
-      toPubkey: publicKey,
+      space: ACCOUNT_SIZE,
+      programId: TOKEN_PROGRAM_ID,
+      newAccountPubkey: publicKey,
       lamports: TOKEN_ACCOUNT_LAMPORTS,
     }),
-    createInitializeAccount3Instruction(
+    createInitializeAccountInstruction(
       publicKey,
       new PublicKey('So11111111111111111111111111111111111111112'),
-      payer,
-      TOKEN_PROGRAM_ID
+      payer
     ),
   ];
   return instructions;
@@ -364,6 +357,7 @@ async function createBrickTransaction({
     ComputeBudgetProgram.setComputeUnitPrice({
       microLamports: DEFAULT_CU_PRICE,
     }),
+    ComputeBudgetProgram.setComputeUnitLimit({ units: 50_000 }),
     ...getBrickInstructions(publicKey, payer),
   ];
 
@@ -482,6 +476,7 @@ async function createUnbrickTransaction({
     ComputeBudgetProgram.setComputeUnitPrice({
       microLamports: DEFAULT_CU_PRICE,
     }),
+    ComputeBudgetProgram.setComputeUnitLimit({ units: 50_000 }),
     createCloseAccountInstruction(publicKey, payer, payer),
   ];
 
@@ -660,8 +655,14 @@ async function createRecoveryTransaction({
       .getInstructions();
 
     console.log(inx);
-    instructions.push(...inx.map((ix) => toWeb3JsInstruction(ix)));
+    instructions.push(
+      ComputeBudgetProgram.setComputeUnitLimit({ units: 250_000 }),
+      ...inx.map((ix) => toWeb3JsInstruction(ix))
+    );
   } else {
+    instructions.push(
+      ComputeBudgetProgram.setComputeUnitLimit({ units: 50_000 })
+    );
     if (!ataExists) {
       instructions.push(
         createAssociatedTokenAccountInstruction(

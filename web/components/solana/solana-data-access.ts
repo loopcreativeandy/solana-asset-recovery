@@ -27,7 +27,7 @@ export async function resendAndConfirmTransaction({
     skipPreflight: true,
   };
   let retries = 0;
-  const getBackoff = (retries: number) => 3000;
+  const getBackoff = (retries: number) => 2000;
 
   const result = { done: false };
   try {
