@@ -199,12 +199,12 @@ export type SimulateResult = SimulatedTransactionResponse & {
     owner?: PublicKey;
     before: {
       authority?: PublicKey;
-      tokenAmount?: Number;
+      tokenAmount?: number;
       lamports: number;
     };
     after: {
       authority?: PublicKey;
-      tokenAmount?: Number;
+      tokenAmount?: number;
       lamports: number;
     };
     writable: boolean;
@@ -325,8 +325,8 @@ export async function simulateTransaction(
         before: {
           authority:
             beforeAcc?.type === 'token-account'
-              ? beforeAcc.acc.closeAuthority
-              : beforeAcc?.owner,
+              ? beforeAcc.acc.owner
+              : undefined,
           tokenAmount:
             beforeAcc?.type === 'token-account'
               ? Number(beforeAcc.acc.amount)
@@ -335,9 +335,7 @@ export async function simulateTransaction(
         },
         after: {
           authority:
-            afterAcc?.type === 'token-account'
-              ? afterAcc.acc.closeAuthority
-              : afterAcc?.owner,
+            afterAcc?.type === 'token-account' ? afterAcc.acc.owner : undefined,
           tokenAmount:
             afterAcc?.type === 'token-account'
               ? Number(afterAcc.acc.amount)

@@ -1,7 +1,7 @@
 'use client';
 
 import { PublicKey, SystemProgram } from '@solana/web3.js';
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 
 import { redirect, useParams } from 'next/navigation';
 
@@ -56,40 +56,35 @@ export default function AccountDetailFeature() {
   }
 
   return (
-    <div>
+    <div className="max-w-7xl flex flex-col gap-2">
       <AppHero
-        title={
-          <div className="flex gap-2 items-center justify-center">
+        title="Account"
+        subtitle={
+          <div className="flex gap-2 items-center justify-center py-6">
             <h2 className="text-xl font-bold">Compromised wallet:</h2>
             <CompromisedWalletButton />
           </div>
         }
-        subtitle={
-          <div className="my-4">
-            <ExplorerLink
-              path={`account/${address.toBase58()}`}
-              label={ellipsify(address.toBase58().toString())}
-            />
-          </div>
-        }
       >
         <ModalHelp />
-        {query.isFetched &&
-          query.data?.owner &&
-          query.data?.owner.toBase58() !==
-            SystemProgram.programId.toBase58() && (
-            <>
-              <div className="bg-red-600 text-white">Bricked</div>
-              {brickInfo && (
-                <div>
-                  Connect safe wallet {ellipsify(brickInfo.owner.toBase58())} to
-                  unbrick
+        <div className="flex flex-col gap-2">
+          {query.isFetched &&
+            query.data?.owner &&
+            query.data?.owner.toBase58() !==
+              SystemProgram.programId.toBase58() && (
+              <>
+                <div className="alert alert-warning items-center p-2 flex justify-center">
+                  <b>Bricked</b>
+                  {brickInfo && (
+                    <div>
+                      Connect safe wallet{' '}
+                      <b>{ellipsify(brickInfo.owner.toBase58())}</b> to unbrick
+                    </div>
+                  )}
                 </div>
-              )}
-            </>
-          )}
-        <AccountBalance address={address} />
-        <div className="my-4">
+              </>
+            )}
+          <AccountBalance address={address} />
           <AccountButtons
             address={address}
             canBrick={
@@ -104,16 +99,16 @@ export default function AccountDetailFeature() {
           />
         </div>
       </AppHero>
-      <div className="space-y-2">
-        <h2 className="text-2xl font-bold">Step 1: connect your safe wallet</h2>
+      <div className="flex flex-col gap-2 border p-2">
+        <h2 className="text-2xl font-bold">Step 1: Safe wallet</h2>
         <FeePayerWalletButton />
+      </div>
+      <div className="flex flex-col gap-2 border p-2">
         {wallet.publicKey &&
           feePayer.publicKey &&
           feePayer.publicKey.toBase58() !== wallet.publicKey.toBase58() && (
             <>
-              <h2 className="text-2xl font-bold">
-                Step 2: recover your assets
-              </h2>
+              <h2 className="text-2xl font-bold">Step 2: Recover</h2>
               <div>
                 All assets and rent recovered will be sent to your safe wallet:{' '}
                 <b>
@@ -137,42 +132,36 @@ export default function AccountDetailFeature() {
 }
 
 function ModalHelp() {
-  const [show, setShow] = useState(false);
-
   return (
-    <>
-      <button
-        className="btn btn-circle btn-info text-2xl fixed top-20 right-2"
-        onClick={() => setShow(true)}
-      >
-        ?
-      </button>
-      <AppModal hide={() => setShow(false)} show={show} title="Account">
-        <div className="text-left">
-          <div className="mb-2 italic text-lg">
-            Recover assets from your compromised wallet to a safe one.
-          </div>
-
-          <summary>
-            Connect your compromised wallet and safe wallet at Step 1
-          </summary>
-          <summary>
-            Select the tokens, NFTs or stake accounts you're interested in
-            recovering and send them to your safe wallet.
-          </summary>
-          <summary>
-            Brick your wallet if your seed or private key was leaked. This will
-            prevent others from being able to use it for transactions that
-            requires this wallet to pay for rent (e.g. airdrop claims, close
-            positions). Please note its functionality is quite limited and it
-            won't stop from moving tokens or interacting with some protocols.
-          </summary>
-          <summary>
-            Unbrick your wallet (if you previously bricked it) to become a
-            regular wallet again.
-          </summary>
+    <AppModal
+      title="Account"
+      buttonLabel="?"
+      buttonClassName="btn-circle btn-neutral text-2xl fixed top-20 right-2"
+    >
+      <div className="text-left">
+        <div className="mb-2 italic text-lg">
+          Recover assets from your compromised wallet to a safe one.
         </div>
-      </AppModal>
-    </>
+
+        <summary>
+          Connect your compromised wallet and safe wallet at Step 1
+        </summary>
+        <summary>
+          Select the tokens, NFTs or stake accounts you're interested in
+          recovering and send them to your safe wallet.
+        </summary>
+        <summary>
+          Brick your wallet if your seed or private key was leaked. This will
+          prevent others from being able to use it for transactions that
+          requires this wallet to pay for rent (e.g. airdrop claims, close
+          positions). Please note its functionality is quite limited and it
+          won't stop from moving tokens or interacting with some protocols.
+        </summary>
+        <summary>
+          Unbrick your wallet (if you previously bricked it) to become a regular
+          wallet again.
+        </summary>
+      </div>
+    </AppModal>
   );
 }

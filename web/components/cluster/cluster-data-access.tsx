@@ -38,7 +38,9 @@ export function toWalletAdapterNetwork(
 export const defaultClusters: Cluster[] = [
   {
     name: 'mainnet',
-    endpoint: process.env.NEXT_PUBLIC_RPC_URL?process.env.NEXT_PUBLIC_RPC_URL: 'https://mainnet.helius-rpc.com/?api-key=e78cc375-92b4-42d9-a00f-d42c497da094',
+    endpoint: process.env.NEXT_PUBLIC_RPC_URL
+      ? process.env.NEXT_PUBLIC_RPC_URL
+      : 'https://mainnet.helius-rpc.com/?api-key=e78cc375-92b4-42d9-a00f-d42c497da094',
     network: ClusterNetwork.Mainnet,
   },
   {
@@ -81,7 +83,7 @@ const activeClusterAtom = atom<Cluster>((get) => {
 export interface ClusterProviderContext {
   cluster: Cluster;
   clusters: Cluster[];
-  addCluster: (cluster: Cluster) => void;
+  addCluster: (cluster: Cluster) => boolean;
   deleteCluster: (cluster: Cluster) => void;
   setCluster: (cluster: Cluster) => void;
   getExplorerUrl(path: string): string;
@@ -104,8 +106,10 @@ export function ClusterProvider({ children }: { children: ReactNode }) {
       try {
         new Connection(cluster.endpoint);
         setClusters([...clusters, cluster]);
+        return true;
       } catch (err) {
         toast.error(`${err}`);
+        return false;
       }
     },
     deleteCluster: (cluster: Cluster) => {

@@ -63,17 +63,19 @@ export function AccountBalanceCheck({ address }: { address: PublicKey }) {
     return (
       <div className="alert alert-warning text-warning-content/80 rounded-none flex justify-center">
         <span>
-          You are connected to <strong>{cluster.name}</strong> but your account
-          is not found on this cluster.
+          You are connected to <strong>{cluster.name}</strong> but your wallet
+          has no funds on this cluster.
         </span>
-        <button
-          className="btn btn-xs btn-neutral"
-          onClick={() =>
-            mutation.mutateAsync(1).catch((err) => console.log(err))
-          }
-        >
-          Request Airdrop
-        </button>
+        {cluster.network !== 'mainnet-beta' && (
+          <button
+            className="btn btn-xs btn-neutral"
+            onClick={() =>
+              mutation.mutateAsync(1).catch((err) => console.log(err))
+            }
+          >
+            Request Airdrop
+          </button>
+        )}
       </div>
     );
   }
@@ -89,73 +91,14 @@ export function AccountButtons({
   canBrick: boolean;
   canUnbrick: boolean;
 }) {
-  const wallet = useCompromisedContext();
-  const { cluster } = useCluster();
-  const [showAirdropModal, setShowAirdropModal] = useState(false);
-  const [showReceiveModal, setShowReceiveModal] = useState(false);
-  const [showSendModal, setShowSendModal] = useState(false);
-  const [showBrickModal, setShowBrickModal] = useState(false);
-  const [showUnbrickModal, setShowUnbrickModal] = useState(false);
-
   return (
     <div>
-      <ModalAirdrop
-        hide={() => setShowAirdropModal(false)}
-        address={address}
-        show={showAirdropModal}
-      />
-      <ModalReceive
-        address={address}
-        show={showReceiveModal}
-        hide={() => setShowReceiveModal(false)}
-      />
-      <ModalSend
-        address={address}
-        show={showSendModal}
-        hide={() => setShowSendModal(false)}
-      />
-      <ModalBrick show={showBrickModal} hide={() => setShowBrickModal(false)} />
-      <ModalUnbrick
-        show={showUnbrickModal}
-        hide={() => setShowUnbrickModal(false)}
-      />
       <div className="space-x-2">
-        <button
-          disabled={cluster.network?.includes('mainnet')}
-          className="btn btn-xs lg:btn-md btn-outline"
-          onClick={() => setShowAirdropModal(true)}
-        >
-          Airdrop
-        </button>
-        <button
-          disabled={wallet.publicKey?.toString() !== address.toString()}
-          className="btn btn-xs lg:btn-md btn-outline"
-          onClick={() => setShowSendModal(true)}
-        >
-          Send
-        </button>
-        <button
-          className="btn btn-xs lg:btn-md btn-outline"
-          onClick={() => setShowReceiveModal(true)}
-        >
-          Receive
-        </button>
-        {canBrick && (
-          <button
-            className="btn btn-xs lg:btn-md btn-outline"
-            onClick={() => setShowBrickModal(true)}
-          >
-            Brick
-          </button>
-        )}
-        {canUnbrick && (
-          <button
-            className="btn btn-xs lg:btn-md btn-outline"
-            onClick={() => setShowUnbrickModal(true)}
-          >
-            Unbrick
-          </button>
-        )}
+        <ModalAirdrop address={address} />
+        <ModalReceive address={address} />
+        <ModalSend address={address} />
+        {canBrick && <ModalBrick />}
+        {canUnbrick && <ModalUnbrick />}
       </div>
     </div>
   );
@@ -211,7 +154,7 @@ export function AccountTokens({ address }: { address: PublicKey }) {
         </div>
       </div>
       {query.isError && (
-        <pre className="alert alert-error">
+        <pre className="alert alert-warning">
           Error: {query.error?.message.toString()}
         </pre>
       )}
@@ -220,7 +163,7 @@ export function AccountTokens({ address }: { address: PublicKey }) {
           {query.data.length === 0 ? (
             <div>No token accounts found.</div>
           ) : (
-            <table className="table border-4 rounded-lg border-separate border-base-300">
+            <table className="table border rounded-none border-separate">
               <thead>
                 <tr>
                   <th>Public Key</th>
@@ -346,7 +289,7 @@ export function AccountNFTs({ address }: { address: PublicKey }) {
         </div>
       </div>
       {query.isError && (
-        <pre className="alert alert-error">
+        <pre className="alert alert-warning">
           Error: {query.error?.message.toString()}
         </pre>
       )}
@@ -355,9 +298,9 @@ export function AccountNFTs({ address }: { address: PublicKey }) {
           {query.data.length === 0 ? (
             <div>No NFTs found.</div>
           ) : (
-            <div className="flex flex-wrap gap-4 justify-center">
+            <div className="flex flex-wrap gap-2 justify-start">
               {items?.map((n) => (
-                <div key={n.id} className="w-40 flex flex-col gap-2">
+                <div key={n.id} className="w-40 flex flex-col gap-2 border p-1">
                   <div className="flex space-x-2">
                     <span className="font-mono">
                       <ExplorerLink
@@ -366,7 +309,7 @@ export function AccountNFTs({ address }: { address: PublicKey }) {
                       />
                     </span>
                   </div>
-                  <div>
+                  <div className="whitespace-nowrap overflow-hidden text-ellipsis max-w-full">
                     {n.content?.metadata.name || n.content?.metadata.symbol}
                   </div>
                   <img
@@ -376,7 +319,9 @@ export function AccountNFTs({ address }: { address: PublicKey }) {
                     className="w-40 h-40"
                   />
                   {!!n.ownership.delegate ? (
-                    <i>Frozen</i>
+                    <button className="btn btn-xs btn-outline" disabled>
+                      Frozen
+                    </button>
                   ) : (
                     <button
                       className="btn btn-xs btn-outline"
@@ -415,17 +360,16 @@ export function AccountNFTs({ address }: { address: PublicKey }) {
                   )}
                 </div>
               ))}
-
-              {(query.data?.length ?? 0) > 12 && (
-                <div className="text-center">
-                  <button
-                    className="btn btn-xs btn-outline"
-                    onClick={() => setShowAll(!showAll)}
-                  >
-                    {showAll ? 'Show Less' : 'Show All'}
-                  </button>
-                </div>
-              )}
+            </div>
+          )}
+          {(query.data?.length ?? 0) > 12 && (
+            <div className="text-center mt-4">
+              <button
+                className="btn btn-xs btn-outline"
+                onClick={() => setShowAll(!showAll)}
+              >
+                {showAll ? 'Show Less' : 'Show All'}
+              </button>
             </div>
           )}
         </div>
@@ -482,7 +426,7 @@ export function AccountStakeAccounts({ address }: { address: PublicKey }) {
         </div>
       </div>
       {query.isError && (
-        <pre className="alert alert-error">
+        <pre className="alert alert-warning">
           Error: {query.error?.message.toString()}
         </pre>
       )}
@@ -607,7 +551,7 @@ export function AccountTransactions({ address }: { address: PublicKey }) {
         </div>
       </div>
       {query.isError && (
-        <pre className="alert alert-error">
+        <pre className="alert alert-warning">
           Error: {query.error?.message.toString()}
         </pre>
       )}
@@ -646,7 +590,7 @@ export function AccountTransactions({ address }: { address: PublicKey }) {
                     <td className="text-right">
                       {item.err ? (
                         <div
-                          className="badge badge-error"
+                          className="badge badge-warning"
                           title={JSON.stringify(item.err)}
                         >
                           Failed
@@ -684,43 +628,25 @@ function BalanceSol({ balance }: { balance: number }) {
   );
 }
 
-function ModalReceive({
-  hide,
-  show,
-  address,
-}: {
-  hide: () => void;
-  show: boolean;
-  address: PublicKey;
-}) {
+function ModalReceive({ address }: { address: PublicKey }) {
   return (
-    <AppModal title="Receive" hide={hide} show={show}>
+    <AppModal title="Receive">
       <p>You can receive assets by sending them to your public key:</p>
       <code>{address.toString()}</code>
     </AppModal>
   );
 }
 
-function ModalAirdrop({
-  hide,
-  show,
-  address,
-}: {
-  hide: () => void;
-  show: boolean;
-  address: PublicKey;
-}) {
+function ModalAirdrop({ address }: { address: PublicKey }) {
   const mutation = useRequestAirdrop({ address });
   const [amount, setAmount] = useState('2');
 
   return (
     <AppModal
-      hide={hide}
-      show={show}
       title="Airdrop"
       submitDisabled={!amount || mutation.isPending}
       submitLabel="Request Airdrop"
-      submit={() => mutation.mutateAsync(parseFloat(amount)).then(() => hide())}
+      submit={() => mutation.mutateAsync(parseFloat(amount)).then(() => true)}
     >
       <input
         disabled={mutation.isPending}
@@ -736,15 +662,7 @@ function ModalAirdrop({
   );
 }
 
-function ModalSend({
-  hide,
-  show,
-  address,
-}: {
-  hide: () => void;
-  show: boolean;
-  address: PublicKey;
-}) {
+function ModalSend({ address }: { address: PublicKey }) {
   const wallet = useCompromisedContext();
   const mutation = useTransferSol({ address });
   const [destination, setDestination] = useState('');
@@ -756,19 +674,17 @@ function ModalSend({
 
   return (
     <AppModal
-      hide={hide}
-      show={show}
       title="Send"
       submitDisabled={!destination || !amount || mutation.isPending}
       submitLabel="Send"
-      submit={() => {
+      submit={() =>
         mutation
           .mutateAsync({
             destination: new PublicKey(destination),
             amount: parseFloat(amount),
           })
-          .then(() => hide());
-      }}
+          .then(() => true)
+      }
     >
       <input
         disabled={mutation.isPending}
@@ -792,22 +708,19 @@ function ModalSend({
   );
 }
 
-function ModalBrick({ hide, show }: { hide: () => void; show: boolean }) {
+function ModalBrick() {
   const feePayer = useFeePayerContext();
   const mutation = useWalletBrick();
 
   return (
     <AppModal
-      hide={hide}
-      show={show}
       title="Brick"
+      buttonClassName="btn-warning"
       submitDisabled={mutation.isPending}
       submitLabel="Brick"
-      submit={() => {
-        mutation.mutateAsync().then(() => hide());
-      }}
+      submit={() => mutation.mutateAsync().then(() => true)}
     >
-      <div className="text-red-600">
+      <div className="alert alert-warning">
         Be careful! This will make your wallet unusable, only use if your seed
         or private wallet was leaked and you don't want others might able to use
         it on certain websites.
@@ -825,21 +738,18 @@ function ModalBrick({ hide, show }: { hide: () => void; show: boolean }) {
   );
 }
 
-function ModalUnbrick({ hide, show }: { hide: () => void; show: boolean }) {
+function ModalUnbrick() {
   const mutation = useWalletUnbrick();
 
   return (
     <AppModal
-      hide={hide}
-      show={show}
       title="Unbrick"
+      buttonClassName="btn-warning"
       submitDisabled={mutation.isPending}
       submitLabel="Unbrick"
-      submit={() => {
-        mutation.mutateAsync().then(() => hide());
-      }}
+      submit={() => mutation.mutateAsync().then(() => true)}
     >
-      <div className="text-red-600">
+      <div className="alert alert-warning">
         This will make your wallet usable again. If your seed or private wallet
         was leaked, others would be able to use it on certain websites.
       </div>
