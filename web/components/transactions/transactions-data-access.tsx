@@ -394,7 +394,7 @@ export async function buildTransactionFromPayload(
           instructions: decodedTransaction.instructions,
         }).compileToV0Message(decodedTransaction.addressLookupTableAccounts)
       ),
-      PriorityLevel.Default
+      PriorityLevel.High
     );
     instructions = [
       ComputeBudgetProgram.setComputeUnitPrice({

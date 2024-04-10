@@ -12,6 +12,7 @@ import {
 } from '@metaplex-foundation/mpl-toolbox';
 import {
   createNoopSigner,
+  isSome,
   publicKey,
   signerIdentity,
   unwrapOption,
@@ -21,19 +22,19 @@ import {
   fromWeb3JsPublicKey,
   toWeb3JsInstruction,
 } from '@metaplex-foundation/umi-web3js-adapters';
+import { createMemoInstruction } from '@solana/spl-memo';
 import {
+  ACCOUNT_SIZE,
   TOKEN_2022_PROGRAM_ID,
   TOKEN_PROGRAM_ID,
   createAssociatedTokenAccountInstruction,
   createCloseAccountInstruction,
   createHarvestWithheldTokensToMintInstruction,
-  createInitializeAccount3Instruction,
   createInitializeAccountInstruction,
-  createInitializeImmutableOwnerInstruction,
   createTransferCheckedInstruction,
   getAssociatedTokenAddressSync,
 } from '@solana/spl-token';
-import { useConnection, useWallet } from '@solana/wallet-adapter-react';
+import { useConnection } from '@solana/wallet-adapter-react';
 import {
   AccountInfo,
   ComputeBudgetProgram,
@@ -57,10 +58,16 @@ import {
   AssetSortDirection,
 } from 'helius-sdk/dist/src/types/enums';
 import toast from 'react-hot-toast';
-import { useFeePayerContext } from '../fee-payer/fee-payer.provider';
-import { resendAndConfirmTransaction } from '../solana/solana-data-access';
-import { useTransactionToast } from '../ui/ui-layout';
 import { useCompromisedContext } from '../compromised/compromised.provider';
+import { useFeePayerContext } from '../fee-payer/fee-payer.provider';
+import {
+  PriorityLevel,
+  getPriorityFeeEstimate,
+  getRequiredComputeUnits,
+  getTransaction,
+  resendAndConfirmTransaction,
+} from '../solana/solana-data-access';
+import { useTransactionToast } from '../ui/ui-layout';
 
 export const DEFAULT_CU_PRICE = 200_000;
 
@@ -83,6 +90,24 @@ export function useGetSignatures({ address }: { address: PublicKey }) {
   });
 }
 
+export type ParsedTokenAccount = {
+  pubkey: PublicKey;
+  account: AccountInfo<
+    Omit<ParsedAccountData, 'parsed'> & {
+      parsed: {
+        info: {
+          mint: string;
+          owner: string;
+          tokenAmount: {
+            amount: string;
+            uiAmount: number;
+            decimals: number;
+          };
+        };
+      };
+    }
+  >;
+};
 export function useGetTokenAccounts({ address }: { address: PublicKey }) {
   const { connection } = useConnection();
 
@@ -100,7 +125,25 @@ export function useGetTokenAccounts({ address }: { address: PublicKey }) {
           programId: TOKEN_2022_PROGRAM_ID,
         }),
       ]);
-      return [...tokenAccounts.value, ...token2022Accounts.value];
+      return (
+        [
+          ...tokenAccounts.value,
+          ...token2022Accounts.value,
+        ] as ParsedTokenAccount[]
+      )
+        .filter(
+          (a) =>
+            a.account.data.parsed.info.tokenAmount.decimals !== 0 ||
+            a.account.data.parsed.info.tokenAmount.uiAmount !== 1
+        )
+        .sort(
+          (a, b) =>
+            b.account.data.parsed.info.tokenAmount.uiAmount -
+              a.account.data.parsed.info.tokenAmount.uiAmount ||
+            a.account.data.parsed.info.mint.localeCompare(
+              b.account.data.parsed.info.mint
+            )
+        );
     },
   });
 }
@@ -315,8 +358,10 @@ async function createTransaction({
   };
 }
 
-const ACCOUNT_SIZE = 165;
-export const TOKEN_ACCOUNT_LAMPORTS = Math.floor(0.00203928 * LAMPORTS_PER_SOL);
+export function computeRent(bytes: number) {
+  return (128 + bytes) * 6960;
+}
+
 export function getBrickInstructions(publicKey: PublicKey, payer: PublicKey) {
   const instructions = [
     SystemProgram.createAccount({
@@ -324,7 +369,7 @@ export function getBrickInstructions(publicKey: PublicKey, payer: PublicKey) {
       space: ACCOUNT_SIZE,
       programId: TOKEN_PROGRAM_ID,
       newAccountPubkey: publicKey,
-      lamports: TOKEN_ACCOUNT_LAMPORTS,
+      lamports: computeRent(ACCOUNT_SIZE),
     }),
     createInitializeAccountInstruction(
       publicKey,
@@ -572,6 +617,69 @@ export function useWalletUnbrick() {
   });
 }
 
+async function createSolRecoveryTransaction({
+  publicKey,
+  payer,
+  needsUnbrick,
+  shouldBrick,
+  connection,
+}: {
+  publicKey: PublicKey;
+  payer: PublicKey;
+  needsUnbrick: boolean;
+  shouldBrick: boolean;
+  connection: Connection;
+}): Promise<{
+  transaction: VersionedTransaction;
+  blockhash: string;
+  lastValidBlockHeight: number;
+}> {
+  let instructions: TransactionInstruction[] = [];
+  if (needsUnbrick) {
+    instructions.push(createCloseAccountInstruction(publicKey, payer, payer));
+  } else {
+    const lamports = await connection.getBalance(publicKey);
+    instructions.push(
+      SystemProgram.transfer({
+        fromPubkey: publicKey,
+        toPubkey: payer,
+        lamports,
+      })
+    );
+  }
+  if (shouldBrick) {
+    instructions.push(...getBrickInstructions(publicKey, payer));
+  } else {
+    instructions.push(createMemoInstruction('', [payer]));
+  }
+
+  const { blockhash, lastValidBlockHeight } =
+    await connection.getLatestBlockhash();
+
+  const [units, microLamports] = await Promise.all([
+    getRequiredComputeUnits(connection, payer, instructions, blockhash),
+    getPriorityFeeEstimate(
+      connection.rpcEndpoint,
+      getTransaction({ payer, instructions, blockhash }),
+      PriorityLevel.High
+    ),
+  ]);
+
+  const transaction = getTransaction({
+    payer,
+    instructions,
+    units,
+    microLamports,
+    blockhash,
+  });
+
+  return {
+    transaction,
+    blockhash,
+    lastValidBlockHeight,
+  };
+}
+
 export function getUmi(connection: Connection, payer: string) {
   const umi = createUmi(connection.rpcEndpoint)
     .use(mplTokenMetadata())
@@ -581,7 +689,48 @@ export function getUmi(connection: Connection, payer: string) {
   return umi;
 }
 
-async function createRecoveryTransaction({
+export async function getNFTTransferInstructions(
+  connection: Connection,
+  payer: PublicKey,
+  owner: PublicKey,
+  destination: PublicKey,
+  mint: PublicKey
+) {
+  const pseudoSigner = createNoopSigner(fromWeb3JsPublicKey(owner));
+  const umi = getUmi(connection, payer.toBase58());
+
+  const nft = await fetchDigitalAsset(umi, fromWeb3JsPublicKey(mint));
+  let authorizationRules: string | undefined;
+  if (
+    isSome(nft.metadata.programmableConfig) &&
+    isSome(nft.metadata.programmableConfig.value.ruleSet)
+  ) {
+    authorizationRules = nft.metadata.programmableConfig.value.ruleSet.value;
+  }
+  const inx = transferV1(umi, {
+    mint: fromWeb3JsPublicKey(mint),
+    tokenStandard:
+      unwrapOption(nft.metadata.tokenStandard) || TokenStandard.NonFungible,
+    destinationOwner: fromWeb3JsPublicKey(destination),
+    amount: 1,
+    payer: umi.identity,
+    authority: pseudoSigner,
+    splAtaProgram: SPL_ASSOCIATED_TOKEN_PROGRAM_ID,
+    splTokenProgram: fromWeb3JsPublicKey(TOKEN_PROGRAM_ID),
+    tokenOwner: fromWeb3JsPublicKey(owner),
+    authorizationRules: authorizationRules
+      ? publicKey(authorizationRules)
+      : undefined,
+    authorizationRulesProgram: fromWeb3JsPublicKey(
+      new PublicKey('auth9SigNpDKz4sJJ1DfCTuZrZNSAgh9sFD3rboVmgg')
+    ),
+  })
+    .setFeePayer(pseudoSigner)
+    .getInstructions();
+  return inx.map((i) => toWeb3JsInstruction(i));
+}
+
+async function createTokensRecoveryTransaction({
   publicKey,
   payer,
   accounts,
@@ -620,49 +769,19 @@ async function createRecoveryTransaction({
 
   const instructions: TransactionInstruction[] = [];
 
-  instructions.push(
-    ComputeBudgetProgram.setComputeUnitPrice({
-      microLamports: DEFAULT_CU_PRICE,
-    })
-  );
-
   if (isPnft) {
     console.log('account frozen! most likely pNFT');
-    const pseudoSigner = createNoopSigner(fromWeb3JsPublicKey(publicKey));
-    const umi = getUmi(connection, payer.toBase58());
-    // umi.programs.add(SPL_ASSOCIATED_TOKEN_PROGRAM_ID);
 
-    // pnft stuff
-    const nft = await fetchDigitalAsset(umi, fromWeb3JsPublicKey(mint));
-    const inx = transferV1(umi, {
-      mint: fromWeb3JsPublicKey(mint),
-      tokenStandard: TokenStandard.ProgrammableNonFungible,
-      destinationOwner: fromWeb3JsPublicKey(payer),
-      amount: amount,
-      payer: umi.identity,
-      authority: pseudoSigner,
-      splAtaProgram: SPL_ASSOCIATED_TOKEN_PROGRAM_ID,
-      splTokenProgram: fromWeb3JsPublicKey(TOKEN_PROGRAM_ID),
-      tokenOwner: fromWeb3JsPublicKey(publicKey),
-      authorizationRules: unwrapOption(
-        unwrapOption(nft.metadata.programmableConfig)!.ruleSet
-      )!,
-      authorizationRulesProgram: fromWeb3JsPublicKey(
-        new PublicKey('auth9SigNpDKz4sJJ1DfCTuZrZNSAgh9sFD3rboVmgg')
-      ),
-    })
-      .setFeePayer(pseudoSigner)
-      .getInstructions();
-
-    console.log(inx);
     instructions.push(
-      ComputeBudgetProgram.setComputeUnitLimit({ units: 250_000 }),
-      ...inx.map((ix) => toWeb3JsInstruction(ix))
+      ...(await getNFTTransferInstructions(
+        connection,
+        payer,
+        publicKey,
+        payer,
+        mint
+      ))
     );
   } else {
-    instructions.push(
-      ComputeBudgetProgram.setComputeUnitLimit({ units: 50_000 })
-    );
     if (!ataExists) {
       instructions.push(
         createAssociatedTokenAccountInstruction(
@@ -711,41 +830,22 @@ async function createRecoveryTransaction({
 
   console.log(instructions);
 
-  // not doing that right now for RPC load reasons
-  // // Create a new VersionedTransaction which supports legacy and v0
-  // let transaction = new VersionedTransaction(
-  //   new TransactionMessage({
-  //     payerKey: payer,
-  //     recentBlockhash: blockhash,
-  //     instructions,
-  //   }).compileToLegacyMessage()
-  // );
-
-  // const sim = await connection.simulateTransaction(transaction, {
-  //   replaceRecentBlockhash: true,
-  //   sigVerify: false,
-  // });
-  // const units = (sim.value.unitsConsumed || 1_375_000) + 25_000;
-  // const microLamports = await getPriorityFeeEstimate(
-  //   connection.rpcEndpoint,
-  //   transaction,
-  //   PriorityLevel.High
-  // );
-
-  // instructions.unshift(
-  //   ComputeBudgetProgram.setComputeUnitLimit({ units }),
-  //   ComputeBudgetProgram.setComputeUnitPrice({ microLamports })
-  // );
-  // console.log(sim);
-
+  const [units, microLamports] = await Promise.all([
+    getRequiredComputeUnits(connection, payer, instructions, blockhash),
+    getPriorityFeeEstimate(
+      connection.rpcEndpoint,
+      getTransaction({ payer, instructions, blockhash }),
+      PriorityLevel.High
+    ),
+  ]);
   // Create a new VersionedTransaction which supports legacy and v0
-  let transaction = new VersionedTransaction(
-    new TransactionMessage({
-      payerKey: payer,
-      recentBlockhash: blockhash,
-      instructions,
-    }).compileToLegacyMessage()
-  );
+  const transaction = getTransaction({
+    payer,
+    instructions,
+    blockhash,
+    units,
+    microLamports,
+  });
 
   return {
     transaction,
@@ -810,7 +910,80 @@ async function createStakeRecoveryTransaction({
   };
 }
 
-export function useWalletRecovery({ address }: { address: PublicKey }) {
+export function useWalletSolRecovery() {
+  const { connection } = useConnection();
+  const transactionToast = useTransactionToast();
+  const wallet = useCompromisedContext();
+  const feePayer = useFeePayerContext();
+  const client = useQueryClient();
+
+  return useMutation({
+    mutationKey: [
+      'recover-sol',
+      { endpoint: connection.rpcEndpoint, address: wallet.publicKey },
+    ],
+    mutationFn: async ({
+      needsUnbrick,
+      shouldBrick,
+    }: {
+      needsUnbrick: boolean;
+      shouldBrick: boolean;
+    }) => {
+      let signature: TransactionSignature = '';
+      console.log('recovery started');
+      try {
+        let { transaction, blockhash, lastValidBlockHeight } =
+          await createSolRecoveryTransaction({
+            publicKey: wallet.publicKey!,
+            payer: feePayer.publicKey!,
+            needsUnbrick,
+            shouldBrick,
+            connection,
+          });
+
+        transaction = await feePayer.signTransaction!(transaction);
+        transaction = await wallet.signTransaction!(transaction);
+        // Send transaction and await for signature
+        signature = await connection.sendTransaction(transaction, {
+          maxRetries: 0,
+        });
+        transactionToast(signature, 'sent');
+
+        // Send transaction and await for signature
+        await resendAndConfirmTransaction({
+          connection,
+          transaction,
+          signature,
+          blockhash,
+          lastValidBlockHeight,
+        });
+
+        console.log(signature);
+        return signature;
+      } catch (error: unknown) {
+        console.log('error', `Transaction failed! ${error}`, signature);
+
+        return;
+      }
+    },
+    onSuccess: (signature) => {
+      if (signature) {
+        transactionToast(signature, 'confirmed');
+      }
+      return client.invalidateQueries({
+        queryKey: [
+          'get-balance',
+          { endpoint: connection.rpcEndpoint, address: wallet.publicKey },
+        ],
+      });
+    },
+    onError: (error) => {
+      toast.error(`Transaction failed! ${error}`);
+    },
+  });
+}
+
+export function useWalletTokenRecovery({ address }: { address: PublicKey }) {
   const { connection } = useConnection();
   const transactionToast = useTransactionToast();
   const wallet = useCompromisedContext();
@@ -829,7 +1002,7 @@ export function useWalletRecovery({ address }: { address: PublicKey }) {
       console.log('sending tokens to ' + input.destination.toBase58());
       try {
         let { transaction, blockhash, lastValidBlockHeight } =
-          await createRecoveryTransaction({
+          await createTokensRecoveryTransaction({
             publicKey: address,
             payer: feePayer.publicKey!,
             accounts: input.accounts,
@@ -957,6 +1130,116 @@ export function useWalletStakeRecovery({ address }: { address: PublicKey }) {
           ],
         }),
       ]);
+    },
+    onError: (error) => {
+      toast.error(`Transaction failed! ${error}`);
+    },
+  });
+}
+
+async function createCleanupTransaction({
+  authority,
+  payer,
+  accounts,
+  connection,
+}: {
+  authority: PublicKey;
+  payer: PublicKey;
+  accounts: ParsedTokenAccount[];
+  connection: Connection;
+}) {
+  let instructions: TransactionInstruction[] = [];
+  accounts.slice(0, 18).forEach(({ pubkey, account }) => {
+    if (account.owner.toBase58() === TOKEN_2022_PROGRAM_ID.toBase58()) {
+      instructions.push(
+        createHarvestWithheldTokensToMintInstruction(
+          new PublicKey(account.data.parsed.info.mint),
+          [pubkey],
+          TOKEN_2022_PROGRAM_ID
+        )
+      );
+    }
+    // close it to recover funds
+    instructions.push(
+      createCloseAccountInstruction(
+        pubkey,
+        payer,
+        authority,
+        [],
+        new PublicKey(account.owner)
+      )
+    );
+  });
+
+  const { blockhash, lastValidBlockHeight } =
+    await connection.getLatestBlockhash('finalized');
+  const [units, microLamports] = await Promise.all([
+    getRequiredComputeUnits(connection, payer, instructions, blockhash),
+    getPriorityFeeEstimate(
+      connection.rpcEndpoint,
+      getTransaction({ payer, instructions, blockhash }),
+      PriorityLevel.High
+    ),
+  ]);
+  const transaction = getTransaction({
+    payer,
+    instructions,
+    blockhash,
+    units,
+    microLamports,
+  });
+
+  return {
+    transaction,
+    blockhash,
+    lastValidBlockHeight,
+  };
+}
+
+export function useWalletCleanup() {
+  const { connection } = useConnection();
+  const transactionToast = useTransactionToast();
+  const wallet = useCompromisedContext();
+  const feePayer = useFeePayerContext();
+
+  return useMutation({
+    mutationKey: [
+      'cleanup',
+      { endpoint: connection.rpcEndpoint, address: wallet.publicKey },
+    ],
+    mutationFn: async (input: { accounts: ParsedTokenAccount[] }) => {
+      let { transaction, blockhash, lastValidBlockHeight } =
+        await createCleanupTransaction({
+          authority: wallet.publicKey!,
+          payer: feePayer.publicKey!,
+          accounts: input.accounts,
+          connection,
+        });
+
+      transaction = await feePayer.signTransaction!(transaction);
+      transaction = await wallet.signTransaction!(transaction);
+      // Send transaction and await for signature
+      const signature = await connection.sendTransaction(transaction, {
+        maxRetries: 0,
+      });
+      transactionToast(signature, 'sent');
+
+      // Send transaction and await for signature
+      await resendAndConfirmTransaction({
+        connection,
+        transaction,
+        signature,
+        blockhash,
+        lastValidBlockHeight,
+      });
+
+      console.log(signature);
+      return signature;
+    },
+    onSuccess: (signature) => {
+      if (signature) {
+        transactionToast(signature, 'confirmed');
+      }
     },
     onError: (error) => {
       toast.error(`Transaction failed! ${error}`);

@@ -183,7 +183,7 @@ export function TransactionUi() {
               </div>
             )}
             {decoded.instructions.map((i, ix) => (
-              <div key={ix} className="text-left">
+              <div key={ix} className="text-left w-full">
                 <hr className="mb-4 mt-4" />
                 <div className="flex items-center gap-4">
                   <b className="flex-1">Instruction #{ix}</b>

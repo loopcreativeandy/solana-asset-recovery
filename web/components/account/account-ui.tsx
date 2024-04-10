@@ -1,6 +1,6 @@
 'use client';
 
-import { TOKEN_PROGRAM_ID } from '@solana/spl-token';
+import { ACCOUNT_SIZE, TOKEN_PROGRAM_ID } from '@solana/spl-token';
 import {
   AccountInfo,
   LAMPORTS_PER_SOL,
@@ -9,7 +9,7 @@ import {
 } from '@solana/web3.js';
 import { IconRefresh } from '@tabler/icons-react';
 import { useQueryClient } from '@tanstack/react-query';
-import { useCallback, useMemo, useState } from 'react';
+import { ChangeEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { useCluster } from '../cluster/cluster-data-access';
 import { ExplorerLink } from '../cluster/cluster-ui';
 import { useCompromisedContext } from '../compromised/compromised.provider';
@@ -25,22 +25,39 @@ import {
   useRequestAirdrop,
   useTransferSol,
   useWalletBrick,
-  useWalletRecovery,
+  useWalletTokenRecovery,
   useWalletStakeRecovery,
   useWalletUnbrick,
+  useWalletSolRecovery,
+  computeRent,
+  ParsedTokenAccount,
+  useWalletCleanup,
 } from './account-data-access';
 
-export function AccountBalance({ address }: { address: PublicKey }) {
+export function AccountBalance({
+  address,
+  canRecover,
+  isBricked,
+}: {
+  address: PublicKey;
+  canRecover?: boolean;
+  isBricked?: boolean;
+}) {
   const query = useGetAccount({ address });
 
   return (
-    <div>
+    <div className="flex flex-row justify-center items-center gap-2">
       <h1
         className="text-xl font-bold cursor-pointer"
         onClick={() => query.refetch()}
       >
         {query.data ? <BalanceSol balance={query.data.lamports} /> : '...'} SOL
       </h1>
+      {canRecover &&
+        (!isBricked ||
+          (query.data?.lamports || 0) > computeRent(ACCOUNT_SIZE)) && (
+          <ModalRecoverSol isBricked={isBricked} />
+        )}
     </div>
   );
 }
@@ -112,8 +129,16 @@ export function AccountTokens({ address }: { address: PublicKey }) {
     if (showAll) return query.data;
     return query.data?.slice(0, 5);
   }, [query.data, showAll]);
+  const cleanupAccounts = useMemo(
+    () =>
+      query.isFetched &&
+      query.data?.filter(
+        (a) => a.account.data.parsed.info.tokenAmount.uiAmount === 0
+      ),
+    [query]
+  );
 
-  const mutation = useWalletRecovery({ address });
+  const mutation = useWalletTokenRecovery({ address });
   const feePayer = useFeePayerContext();
   const handleRecover = useCallback(
     async (accounts: {
@@ -134,12 +159,15 @@ export function AccountTokens({ address }: { address: PublicKey }) {
       <div className="justify-between">
         <div className="flex justify-between">
           <h2 className="text-2xl font-bold">Token Accounts</h2>
-          <div className="space-x-2">
+          <div className="flex gap-2 items-center">
+            {!!cleanupAccounts && cleanupAccounts.length > 0 && (
+              <ModalCleanup accounts={cleanupAccounts} />
+            )}
             {query.isLoading ? (
               <span className="loading loading-spinner"></span>
             ) : (
               <button
-                className="btn btn-sm btn-outline"
+                className="btn btn-xs btn-outline"
                 onClick={async () => {
                   await query.refetch();
                   await client.invalidateQueries({
@@ -170,7 +198,7 @@ export function AccountTokens({ address }: { address: PublicKey }) {
                     <th>Public Key</th>
                     <th>Mint</th>
                     <th className="text-right">Balance</th>
-                    <th className="text-right">Recovery</th>
+                    <th className="text-right"></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -250,7 +278,7 @@ export function AccountNFTs({ address }: { address: PublicKey }) {
     return query.data?.slice(0, 12) || [];
   }, [query.data, showAll]);
 
-  const mutation = useWalletRecovery({ address });
+  const mutation = useWalletTokenRecovery({ address });
   const feePayer = useFeePayerContext();
   const handleRecover = useCallback(
     async (accounts: {
@@ -443,7 +471,7 @@ export function AccountStakeAccounts({ address }: { address: PublicKey }) {
                   <th>Public Key</th>
                   <th>Validator</th>
                   <th className="text-right">Stake</th>
-                  <th className="text-right">Recovery</th>
+                  <th className="text-right"></th>
                 </tr>
               </thead>
               <tbody>
@@ -630,6 +658,59 @@ function BalanceSol({ balance }: { balance: number }) {
   );
 }
 
+function ModalRecoverSol({ isBricked }: { isBricked?: boolean }) {
+  const feePayer = useFeePayerContext();
+  const mutation = useWalletSolRecovery();
+  const [shouldBrick, setShouldBrick] = useState(!!isBricked);
+  useEffect(() => {
+    setShouldBrick(!!isBricked);
+  }, [isBricked]);
+
+  return (
+    <AppModal
+      title="Recover SOL"
+      buttonClassName="btn-xs btn-outline"
+      buttonLabel="Recover"
+      submitDisabled={mutation.isPending}
+      submitLabel="Recover"
+      submit={() =>
+        mutation
+          .mutateAsync({ needsUnbrick: !!isBricked, shouldBrick })
+          .then(() => true)
+      }
+    >
+      {isBricked && (
+        <div className="alert">
+          Wallet is bricked. It'll be unbricked to recover the SOL. We suggest
+          to leave it bricked after.
+        </div>
+      )}
+      <fieldset className="flex gap-2">
+        <input
+          type="checkbox"
+          checked={shouldBrick}
+          onChange={(e: ChangeEvent<HTMLInputElement>) =>
+            setShouldBrick(e.target.checked)
+          }
+          id="shouldBrick"
+        />
+        <label htmlFor="shouldBrick">Brick after recovering</label>
+      </fieldset>
+      {shouldBrick && (
+        <div className="alert alert-warning">
+          You will only be able to unbrick it with your safe wallet{' '}
+          <b>
+            <ExplorerLink
+              path={`/account/${feePayer.publicKey?.toBase58()}`}
+              label={ellipsify(feePayer.publicKey?.toBase58())}
+            />
+          </b>
+        </div>
+      )}
+    </AppModal>
+  );
+}
+
 function ModalReceive({ address }: { address: PublicKey }) {
   return (
     <AppModal title="Receive">
@@ -754,6 +835,26 @@ function ModalUnbrick() {
       <div className="alert alert-warning">
         This will make your wallet usable again. If your seed or private wallet
         was leaked, others would be able to use it on certain websites.
+      </div>
+    </AppModal>
+  );
+}
+
+function ModalCleanup({ accounts }: { accounts: ParsedTokenAccount[] }) {
+  const mutation = useWalletCleanup();
+
+  return (
+    <AppModal
+      title="Cleanup"
+      buttonClassName="btn-xs btn-neutral"
+      buttonLabel="Cleanup"
+      submitDisabled={mutation.isPending}
+      submitLabel="Cleanup"
+      submit={() => mutation.mutateAsync({ accounts }).then(() => true)}
+    >
+      <div>
+        Closing <b>{accounts.length}</b> token accounts for{' '}
+        {(accounts.length * computeRent(ACCOUNT_SIZE)) / LAMPORTS_PER_SOL} SOL
       </div>
     </AppModal>
   );

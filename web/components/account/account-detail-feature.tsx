@@ -83,7 +83,20 @@ export default function AccountDetailFeature() {
                 </div>
               </>
             )}
-          <AccountBalance address={address} />
+          <AccountBalance
+            address={address}
+            canRecover={
+              query.isFetched &&
+              (query.data?.owner.toBase58() ===
+                SystemProgram.programId.toBase58() ||
+                brickInfo?.owner.toBase58() === feePayer.publicKey?.toBase58())
+            }
+            isBricked={
+              query.isFetched &&
+              query.data?.owner.toBase58() !==
+                SystemProgram.programId.toBase58()
+            }
+          />
           <AccountButtons
             address={address}
             canBrick={

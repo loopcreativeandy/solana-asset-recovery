@@ -32,7 +32,7 @@ export function UiLayout({ children }: { children: ReactNode }) {
 
   return (
     <div className="flex flex-col min-h-full">
-      <div className="navbar bg-purple-400 items-end sm:items-center">
+      <div className="navbar bg-base-300 items-end sm:items-center">
         <div className="flex-1 flex flex-col sm:flex-row items-start sm:items-center">
           <Link className="btn btn-ghost normal-case text-xl" href="/">
             <img
@@ -84,6 +84,7 @@ export function AppModal({
   title,
   buttonLabel,
   buttonClassName,
+  onShow,
   submit,
   submitDisabled,
   submitLabel,
@@ -92,19 +93,30 @@ export function AppModal({
   title: string;
   buttonLabel?: ReactNode;
   buttonClassName?: string;
+  onShow?: () => void;
   submit?: () => boolean | Promise<boolean>;
   submitDisabled?: boolean;
   submitLabel?: string;
 }) {
   const [show, setShow] = useState(false);
+  const handleShow = useCallback(() => {
+    setShow(true);
+    onShow?.();
+  }, [onShow]);
   const hide = useCallback(() => setShow(false), []);
+  const [submitting, setSubmitting] = useState(false);
   const onSubmit = useMemo(
     () =>
       submit
         ? async () => {
-            let result = await submit();
-            if (result) {
-              hide();
+            try {
+              setSubmitting(true);
+              let result = await submit();
+              if (result) {
+                hide();
+              }
+            } finally {
+              setSubmitting(false);
             }
           }
         : hide(),
@@ -123,10 +135,7 @@ export function AppModal({
 
   return (
     <>
-      <button
-        className={`btn ${buttonClassName}`}
-        onClick={() => setShow(true)}
-      >
+      <button className={`btn ${buttonClassName}`} onClick={handleShow}>
         {buttonLabel || title}
       </button>
       <dialog className="modal" ref={dialogRef}>
@@ -144,7 +153,11 @@ export function AppModal({
                   {submitLabel || 'Save'}
                 </button>
               ) : null}
-              <button onClick={hide} className="btn btn-md">
+              <button
+                onClick={hide}
+                className="btn btn-md"
+                disabled={submitting}
+              >
                 Close
               </button>
             </div>
