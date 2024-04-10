@@ -33,6 +33,7 @@ import {
   ParsedTokenAccount,
   useWalletCleanup,
 } from './account-data-access';
+import { PriceInfo, useTokensContext } from '../tokens/tokens-provider';
 
 export function AccountBalance({
   address,
@@ -122,13 +123,10 @@ export function AccountButtons({
 }
 
 export function AccountTokens({ address }: { address: PublicKey }) {
+  const { tokens, getPrices } = useTokensContext();
   const [showAll, setShowAll] = useState(false);
   const query = useGetTokenAccounts({ address });
   const client = useQueryClient();
-  const items = useMemo(() => {
-    if (showAll) return query.data;
-    return query.data?.slice(0, 5);
-  }, [query.data, showAll]);
   const cleanupAccounts = useMemo(
     () =>
       query.isFetched &&
@@ -136,6 +134,43 @@ export function AccountTokens({ address }: { address: PublicKey }) {
         (a) => a.account.data.parsed.info.tokenAmount.uiAmount === 0
       ),
     [query]
+  );
+  const [tokenPrices, setTokenPrices] = useState<Record<string, PriceInfo>>({});
+  useEffect(() => {
+    if (query.isFetched && query.data) {
+      (async function () {
+        const prices = await getPrices(query.data);
+        setTokenPrices(prices);
+      })();
+    }
+  }, [getPrices, query.data]);
+  const sortedTokens = useMemo(
+    () =>
+      query.data
+        ?.sort((a, b) => {
+          const {
+            mint: aMint,
+            tokenAmount: { uiAmount: aUiAmount },
+          } = a.account.data.parsed.info;
+          const {
+            mint: bMint,
+            tokenAmount: { uiAmount: bUiAmount },
+          } = b.account.data.parsed.info;
+          if (tokenPrices[aMint]) {
+            if (tokenPrices[bMint]) {
+              return (
+                tokenPrices[bMint].price * bUiAmount -
+                tokenPrices[aMint].price * aUiAmount
+              );
+            }
+            return -1;
+          } else if (tokenPrices[bMint]) {
+            return 1;
+          }
+          return bUiAmount - aUiAmount;
+        })
+        .slice(0, showAll ? undefined : 5),
+    [query.data, tokenPrices, showAll]
   );
 
   const mutation = useWalletTokenRecovery({ address });
@@ -188,7 +223,7 @@ export function AccountTokens({ address }: { address: PublicKey }) {
       )}
       {query.isSuccess && (
         <div>
-          {query.data.length === 0 ? (
+          {sortedTokens?.length === 0 ? (
             <div>No token accounts found.</div>
           ) : (
             <div className="overflow-auto">
@@ -202,50 +237,75 @@ export function AccountTokens({ address }: { address: PublicKey }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {items?.map(({ account, pubkey }) => (
-                    <tr key={pubkey.toString()}>
-                      <td>
-                        <div className="flex space-x-2">
-                          <span className="font-mono">
-                            <ExplorerLink
-                              label={ellipsify(pubkey.toString())}
-                              path={`account/${pubkey.toString()}`}
-                            />
-                          </span>
-                        </div>
-                      </td>
-                      <td>
-                        <div className="flex space-x-2">
-                          <span className="font-mono">
-                            <ExplorerLink
-                              label={ellipsify(account.data.parsed.info.mint)}
-                              path={`account/${account.data.parsed.info.mint.toString()}`}
-                            />
-                          </span>
-                        </div>
-                      </td>
-                      <td className="text-right">
-                        <span className="font-mono">
-                          {account.data.parsed.info.tokenAmount.uiAmount}
-                          {/* <AccountTokenBalance address={pubkey} /> */}
-                        </span>
-                      </td>
-                      <td className="text-right">
-                        <button
-                          className="btn btn-xs btn-outline"
-                          disabled={mutation.isPending}
-                          onClick={() => {
-                            handleRecover({
-                              pubkey: pubkey,
-                              account: account,
-                            });
-                          }}
-                        >
-                          Recover
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
+                  {sortedTokens?.map(({ account, pubkey }) => {
+                    const mint = account.data.parsed.info.mint;
+                    const token = tokens[mint];
+                    return (
+                      <tr key={pubkey.toString()}>
+                        <td>
+                          <div className="flex space-x-2">
+                            <span className="font-mono">
+                              <ExplorerLink
+                                label={ellipsify(pubkey.toString())}
+                                path={`account/${pubkey.toString()}`}
+                              />
+                            </span>
+                          </div>
+                        </td>
+                        <td>
+                          <ExplorerLink
+                            label={
+                              <div className="flex items-center gap-1">
+                                {token ? (
+                                  <>
+                                    <img
+                                      src={token.logoURI}
+                                      alt={token.symbol}
+                                      className="w-5 h-5"
+                                    />
+                                    <span>{token.symbol}</span>
+                                  </>
+                                ) : (
+                                  ellipsify(account.data.parsed.info.mint)
+                                )}
+                              </div>
+                            }
+                            path={`account/${account.data.parsed.info.mint.toString()}`}
+                          />
+                        </td>
+                        <td className="text-right">
+                          <div className="font-mono">
+                            {account.data.parsed.info.tokenAmount.uiAmount}
+                          </div>
+                          {tokenPrices[mint] && (
+                            <small>
+                              ~
+                              <Price
+                                price={
+                                  tokenPrices[mint].price *
+                                  account.data.parsed.info.tokenAmount.uiAmount
+                                }
+                              />
+                            </small>
+                          )}
+                        </td>
+                        <td className="text-right">
+                          <button
+                            className="btn btn-xs btn-outline"
+                            disabled={mutation.isPending}
+                            onClick={() => {
+                              handleRecover({
+                                pubkey: pubkey,
+                                account: account,
+                              });
+                            }}
+                          >
+                            Recover
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
 
                   {(query.data?.length ?? 0) > 5 && (
                     <tr>
@@ -656,6 +716,14 @@ function BalanceSol({ balance }: { balance: number }) {
   return (
     <span>{Math.round((balance / LAMPORTS_PER_SOL) * 100000) / 100000}</span>
   );
+}
+
+const formatter = new Intl.NumberFormat(undefined, {
+  style: 'currency',
+  currency: 'USD',
+});
+function Price({ price }: { price: number }) {
+  return formatter.format(price);
 }
 
 function ModalRecoverSol({ isBricked }: { isBricked?: boolean }) {

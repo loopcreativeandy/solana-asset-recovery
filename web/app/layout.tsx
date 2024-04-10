@@ -1,6 +1,7 @@
 import { ClusterProvider } from '@/components/cluster/cluster-data-access';
 import { CompromisedProvider } from '@/components/compromised/compromised.provider';
 import { FeePayerProvider } from '@/components/fee-payer/fee-payer.provider';
+import { TokensProvider } from '@/components/tokens/tokens-provider';
 import { UiLayout } from '@/components/ui/ui-layout';
 import './global.css';
 import { Provider } from './provider';
@@ -20,11 +21,13 @@ export default function RootLayout({
       <body>
         <Provider>
           <ClusterProvider>
-            <FeePayerProvider>
-              <CompromisedProvider>
-                <UiLayout>{children}</UiLayout>
-              </CompromisedProvider>
-            </FeePayerProvider>
+            <TokensProvider>
+              <FeePayerProvider>
+                <CompromisedProvider>
+                  <UiLayout>{children}</UiLayout>
+                </CompromisedProvider>
+              </FeePayerProvider>
+            </TokensProvider>
           </ClusterProvider>
         </Provider>
       </body>
