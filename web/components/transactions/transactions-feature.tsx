@@ -1,5 +1,6 @@
 'use client';
 
+import { CompromisedWalletButton } from '../compromised/compromised.ui';
 import { AppHero, AppModal } from '../ui/ui-layout';
 import { TransactionUi } from './transactions-ui';
 
@@ -9,10 +10,14 @@ export default function TransactionsFeature() {
       <AppHero
         title="Transactions"
         subtitle="Manually send transactions from bricked wallets"
+        HelpModal={ModalHelp}
       >
-        <ModalHelp />
-        <TransactionUi></TransactionUi>
+        <div className="flex gap-2 items-center justify-center">
+          <h2 className="text-md font-bold">Compromised wallet:</h2>
+          <CompromisedWalletButton />
+        </div>
       </AppHero>
+      <TransactionUi />
     </div>
   );
 }
@@ -22,7 +27,7 @@ function ModalHelp() {
     <AppModal
       title="Transactions"
       buttonLabel="?"
-      buttonClassName="btn-circle btn-neutral text-2xl fixed top-20 right-2"
+      buttonClassName="btn-sm btn-circle btn-neutral text-xl"
     >
       <div className="text-left">
         <div className="mb-2 italic text-lg">

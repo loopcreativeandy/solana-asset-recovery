@@ -2,11 +2,10 @@
 
 import { base58 } from '@metaplex-foundation/umi/serializers';
 import { useConnection } from '@solana/wallet-adapter-react';
-import { AccountMeta, LAMPORTS_PER_SOL, PublicKey } from '@solana/web3.js';
+import { AccountMeta, PublicKey } from '@solana/web3.js';
 import { useEffect, useState } from 'react';
 import { ExplorerLink } from '../cluster/cluster-ui';
 import { useCompromisedContext } from '../compromised/compromised.provider';
-import { CompromisedWalletButton } from '../compromised/compromised.ui';
 import { useFeePayerContext } from '../fee-payer/fee-payer.provider';
 import { FeePayerWalletButton } from '../fee-payer/fee-payer.ui';
 import { resendAndConfirmTransaction } from '../solana/solana-data-access';
@@ -141,10 +140,6 @@ export function TransactionUi() {
 
   return (
     <div className="max-w-7xl">
-      <div className="flex gap-2 items-center justify-center">
-        <h2 className="text-xl font-bold">Compromised wallet:</h2>
-        <CompromisedWalletButton />
-      </div>
       <div className="space-y-4 mt-4">
         <div className="border p-2 flex flex-col gap-2">
           <h2 className="text-2xl font-bold">Step 1: Safe wallet</h2>
@@ -164,9 +159,8 @@ export function TransactionUi() {
               <textarea
                 name="payload"
                 rows={4}
-                cols={80}
                 onChange={handlePayloadChange}
-                className="border"
+                className="border w-full"
                 placeholder="Paste the payload here"
               />
             </div>
@@ -282,9 +276,8 @@ export function TransactionUi() {
                   <textarea
                     readOnly
                     rows={2}
-                    cols={80}
                     value={base58.deserialize(new Uint8Array(i.data))[0]}
-                    className="border block"
+                    className="border block w-full"
                   />
                 </div>
               </div>
@@ -311,77 +304,60 @@ export function TransactionUi() {
             <textarea
               value={(preview.logs || []).join('\n')}
               rows={10}
-              cols={80}
               readOnly
-              className="border"
+              className="border w-full"
             />
             {preview.accounts && (
               <>
                 <h5>Accounts changes:</h5>
-                <div className="table border border-collapse border-spacing-0 rounded-none p-2">
-                  <thead>
-                    <tr>
-                      <th>Address</th>
-                      <th>Program</th>
-                      <th>Authority</th>
-                      <th>Before</th>
-                      <th>After</th>
-                      <th>Change</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {preview.addresses.map((a) => (
-                      <tr key={a.pubkey}>
-                        <td>
-                          <ExplorerLink
-                            path={`account/${a.pubkey}`}
-                            label={ellipsify(a.pubkey)}
-                          />
-                        </td>
-                        <td>
-                          <ExplorerLink
-                            path={`account/${a.owner?.toBase58()}`}
-                            label={ellipsify(a.owner?.toBase58())}
-                          />
-                        </td>
-                        <td>
-                          <ExplorerLink
-                            path={`account/${(
-                              a.after.authority || a.before.authority
-                            )?.toBase58()}`}
-                            label={ellipsify(
-                              (
-                                a.after.authority || a.before.authority
-                              )?.toBase58()
-                            )}
-                          />
-                        </td>
-                        <td>
-                          {a.type === 'token-account' ? (
-                            <>
-                              <BalanceDisplay balance={a.before.tokenAmount} />
-                              <BalanceDisplay
-                                balance={a.before.lamports}
-                                decimals={9}
-                                symbol="SOL"
-                                small
-                              />
-                            </>
-                          ) : (
-                            <BalanceDisplay
-                              balance={a.before.lamports}
-                              decimals={9}
-                              symbol="SOL"
+
+                <div className="overflow-auto">
+                  <table className="table border border-collapse border-spacing-0 rounded-none p-2 w-full">
+                    <thead>
+                      <tr>
+                        <th>Address</th>
+                        <th>Program</th>
+                        <th>Authority</th>
+                        <th>Before</th>
+                        <th>After</th>
+                        <th>Change</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {preview.addresses.map((a) => (
+                        <tr key={a.pubkey}>
+                          <td>
+                            <ExplorerLink
+                              path={`account/${a.pubkey}`}
+                              label={ellipsify(a.pubkey)}
                             />
-                          )}
-                        </td>
-                        {!preview.err && (
+                          </td>
+                          <td>
+                            <ExplorerLink
+                              path={`account/${a.owner?.toBase58()}`}
+                              label={ellipsify(a.owner?.toBase58())}
+                            />
+                          </td>
+                          <td>
+                            <ExplorerLink
+                              path={`account/${(
+                                a.after.authority || a.before.authority
+                              )?.toBase58()}`}
+                              label={ellipsify(
+                                (
+                                  a.after.authority || a.before.authority
+                                )?.toBase58()
+                              )}
+                            />
+                          </td>
                           <td>
                             {a.type === 'token-account' ? (
                               <>
-                                <BalanceDisplay balance={a.after.tokenAmount} />
                                 <BalanceDisplay
-                                  balance={a.after.lamports}
+                                  balance={a.before.tokenAmount}
+                                />
+                                <BalanceDisplay
+                                  balance={a.before.lamports}
                                   decimals={9}
                                   symbol="SOL"
                                   small
@@ -389,42 +365,65 @@ export function TransactionUi() {
                               </>
                             ) : (
                               <BalanceDisplay
-                                balance={a.after.lamports}
+                                balance={a.before.lamports}
                                 decimals={9}
                                 symbol="SOL"
                               />
                             )}
                           </td>
-                        )}
-                        {!preview.err && (
-                          <td className="inline-flex flex-col gap-1">
-                            {a.type === 'token-account' ? (
-                              <>
-                                <BalanceChange
-                                  from={a.before.tokenAmount}
-                                  to={a.after.tokenAmount}
+                          {!preview.err && (
+                            <td>
+                              {a.type === 'token-account' ? (
+                                <>
+                                  <BalanceDisplay
+                                    balance={a.after.tokenAmount}
+                                  />
+                                  <BalanceDisplay
+                                    balance={a.after.lamports}
+                                    decimals={9}
+                                    symbol="SOL"
+                                    small
+                                  />
+                                </>
+                              ) : (
+                                <BalanceDisplay
+                                  balance={a.after.lamports}
+                                  decimals={9}
+                                  symbol="SOL"
                                 />
+                              )}
+                            </td>
+                          )}
+                          {!preview.err && (
+                            <td className="inline-flex flex-col gap-1">
+                              {a.type === 'token-account' ? (
+                                <>
+                                  <BalanceChange
+                                    from={a.before.tokenAmount}
+                                    to={a.after.tokenAmount}
+                                  />
+                                  <BalanceChange
+                                    from={a.before.lamports}
+                                    to={a.after.lamports}
+                                    decimals={9}
+                                    symbol="SOL"
+                                    small
+                                  />
+                                </>
+                              ) : (
                                 <BalanceChange
                                   from={a.before.lamports}
                                   to={a.after.lamports}
                                   decimals={9}
                                   symbol="SOL"
-                                  small
                                 />
-                              </>
-                            ) : (
-                              <BalanceChange
-                                from={a.before.lamports}
-                                to={a.after.lamports}
-                                decimals={9}
-                                symbol="SOL"
-                              />
-                            )}
-                          </td>
-                        )}
-                      </tr>
-                    ))}
-                  </tbody>
+                              )}
+                            </td>
+                          )}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
               </>
             )}

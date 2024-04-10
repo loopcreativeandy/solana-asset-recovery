@@ -32,8 +32,8 @@ export function UiLayout({ children }: { children: ReactNode }) {
 
   return (
     <div className="flex flex-col min-h-full">
-      <div className="navbar bg-purple-400 flex-row items-center">
-        <div className="flex-1">
+      <div className="navbar bg-purple-400 items-end sm:items-center">
+        <div className="flex-1 flex flex-col sm:flex-row items-start sm:items-center">
           <Link className="btn btn-ghost normal-case text-xl" href="/">
             <img
               className="h-4 md:h-6"
@@ -41,11 +41,13 @@ export function UiLayout({ children }: { children: ReactNode }) {
               src="/solandy-logo.png"
             />
           </Link>
-          <ul className="menu menu-horizontal px-1 space-x-2 hidden sm:flex">
+          <ul className="menu menu-horizontal flex gap-2 p-0">
             {pages.map(({ label, path }) => (
               <li key={path}>
                 <Link
-                  className={pathname.startsWith(path) ? 'active' : ''}
+                  className={`no-underline p-1 sm:p-2 ${
+                    pathname.startsWith(path) ? 'active' : ''
+                  }`}
                   href={path}
                 >
                   {label}
@@ -54,7 +56,7 @@ export function UiLayout({ children }: { children: ReactNode }) {
             ))}
           </ul>
         </div>
-        <div className="flex-none space-x-2">
+        <div>
           <ClusterUiSelect />
         </div>
       </div>
@@ -157,22 +159,27 @@ export function AppHero({
   children,
   title,
   subtitle,
+  HelpModal,
 }: {
   children?: ReactNode;
   title: ReactNode;
   subtitle: ReactNode;
+  HelpModal?: React.FC<{}>;
 }) {
   return (
     <div className="hero py-8">
-      <div className="hero-content text-center">
+      <div className="hero-content p-0 text-center">
         <div>
-          {typeof title === 'string' ? (
-            <h1 className="text-5xl font-bold">{title}</h1>
-          ) : (
-            title
-          )}
+          <div className="inline-flex items-center gap-4">
+            {typeof title === 'string' ? (
+              <h1 className="text-4xl font-bold">{title}</h1>
+            ) : (
+              title
+            )}
+            {HelpModal && <HelpModal />}
+          </div>
           {typeof subtitle === 'string' ? (
-            <p className="py-6">{subtitle}</p>
+            <p className="py-4">{subtitle}</p>
           ) : (
             subtitle
           )}

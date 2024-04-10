@@ -93,7 +93,7 @@ export function AccountButtons({
 }) {
   return (
     <div>
-      <div className="space-x-2">
+      <div className="flex flex-wrap justify-center gap-2">
         <ModalAirdrop address={address} />
         <ModalReceive address={address} />
         <ModalSend address={address} />
@@ -163,75 +163,77 @@ export function AccountTokens({ address }: { address: PublicKey }) {
           {query.data.length === 0 ? (
             <div>No token accounts found.</div>
           ) : (
-            <table className="table border rounded-none border-separate">
-              <thead>
-                <tr>
-                  <th>Public Key</th>
-                  <th>Mint</th>
-                  <th className="text-right">Balance</th>
-                  <th className="text-right">Recovery</th>
-                </tr>
-              </thead>
-              <tbody>
-                {items?.map(({ account, pubkey }) => (
-                  <tr key={pubkey.toString()}>
-                    <td>
-                      <div className="flex space-x-2">
-                        <span className="font-mono">
-                          <ExplorerLink
-                            label={ellipsify(pubkey.toString())}
-                            path={`account/${pubkey.toString()}`}
-                          />
-                        </span>
-                      </div>
-                    </td>
-                    <td>
-                      <div className="flex space-x-2">
-                        <span className="font-mono">
-                          <ExplorerLink
-                            label={ellipsify(account.data.parsed.info.mint)}
-                            path={`account/${account.data.parsed.info.mint.toString()}`}
-                          />
-                        </span>
-                      </div>
-                    </td>
-                    <td className="text-right">
-                      <span className="font-mono">
-                        {account.data.parsed.info.tokenAmount.uiAmount}
-                        {/* <AccountTokenBalance address={pubkey} /> */}
-                      </span>
-                    </td>
-                    <td className="text-right">
-                      <button
-                        className="btn btn-xs btn-outline"
-                        disabled={mutation.isPending}
-                        onClick={() => {
-                          handleRecover({
-                            pubkey: pubkey,
-                            account: account,
-                          });
-                        }}
-                      >
-                        Recover
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-
-                {(query.data?.length ?? 0) > 5 && (
+            <div className="overflow-auto">
+              <table className="table border rounded-none border-collapse w-full">
+                <thead>
                   <tr>
-                    <td colSpan={4} className="text-center">
-                      <button
-                        className="btn btn-xs btn-outline"
-                        onClick={() => setShowAll(!showAll)}
-                      >
-                        {showAll ? 'Show Less' : 'Show All'}
-                      </button>
-                    </td>
+                    <th>Public Key</th>
+                    <th>Mint</th>
+                    <th className="text-right">Balance</th>
+                    <th className="text-right">Recovery</th>
                   </tr>
-                )}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {items?.map(({ account, pubkey }) => (
+                    <tr key={pubkey.toString()}>
+                      <td>
+                        <div className="flex space-x-2">
+                          <span className="font-mono">
+                            <ExplorerLink
+                              label={ellipsify(pubkey.toString())}
+                              path={`account/${pubkey.toString()}`}
+                            />
+                          </span>
+                        </div>
+                      </td>
+                      <td>
+                        <div className="flex space-x-2">
+                          <span className="font-mono">
+                            <ExplorerLink
+                              label={ellipsify(account.data.parsed.info.mint)}
+                              path={`account/${account.data.parsed.info.mint.toString()}`}
+                            />
+                          </span>
+                        </div>
+                      </td>
+                      <td className="text-right">
+                        <span className="font-mono">
+                          {account.data.parsed.info.tokenAmount.uiAmount}
+                          {/* <AccountTokenBalance address={pubkey} /> */}
+                        </span>
+                      </td>
+                      <td className="text-right">
+                        <button
+                          className="btn btn-xs btn-outline"
+                          disabled={mutation.isPending}
+                          onClick={() => {
+                            handleRecover({
+                              pubkey: pubkey,
+                              account: account,
+                            });
+                          }}
+                        >
+                          Recover
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+
+                  {(query.data?.length ?? 0) > 5 && (
+                    <tr>
+                      <td colSpan={4} className="text-center">
+                        <button
+                          className="btn btn-xs btn-outline"
+                          onClick={() => setShowAll(!showAll)}
+                        >
+                          {showAll ? 'Show Less' : 'Show All'}
+                        </button>
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
           )}
         </div>
       )}
@@ -435,7 +437,7 @@ export function AccountStakeAccounts({ address }: { address: PublicKey }) {
           {query.data.length === 0 ? (
             <div>No stake accounts found.</div>
           ) : (
-            <table className="table border-4 rounded-lg border-separate border-base-300">
+            <table className="table border rounded-none border-separate">
               <thead>
                 <tr>
                   <th>Public Key</th>
@@ -560,7 +562,7 @@ export function AccountTransactions({ address }: { address: PublicKey }) {
           {query.data.length === 0 ? (
             <div>No transactions found.</div>
           ) : (
-            <table className="table border-4 rounded-lg border-separate border-base-300">
+            <table className="table border rounded-none border-separate">
               <thead>
                 <tr>
                   <th>Signature</th>

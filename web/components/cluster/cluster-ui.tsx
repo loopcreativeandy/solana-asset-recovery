@@ -132,7 +132,7 @@ export function ClusterUiTable() {
   const { clusters, setCluster, deleteCluster } = useCluster();
   return (
     <div className="overflow-x-auto">
-      <table className="table border-4 border-separate border-base-300">
+      <table className="table border rounded-none border-separate">
         <thead>
           <tr>
             <th>Name/ Network / Endpoint</th>
@@ -161,9 +161,7 @@ export function ClusterUiTable() {
                 <span className="text-xs">
                   Network: {item.network ?? 'custom'}
                 </span>
-                <div className="whitespace-nowrap text-gray-500 text-xs">
-                  {item.endpoint}
-                </div>
+                <div className="text-gray-500 text-xs">{item.endpoint}</div>
               </td>
               <td className="space-x-2 whitespace-nowrap text-center">
                 <button

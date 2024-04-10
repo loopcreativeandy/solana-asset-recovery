@@ -9,8 +9,8 @@ export default function ClusterFeature() {
       <AppHero
         title="Clusters"
         subtitle="Manage and select your Solana clusters"
+        HelpModal={ModalHelp}
       >
-        <ModalHelp />
         <ClusterUiModal />
       </AppHero>
       <ClusterUiTable />
@@ -23,7 +23,7 @@ function ModalHelp() {
     <AppModal
       title="Clusters"
       buttonLabel="?"
-      buttonClassName="btn-circle btn-neutral text-2xl fixed top-20 right-2"
+      buttonClassName="btn-sm btn-circle btn-neutral text-xl"
     >
       <div className="text-left">
         <div className="mb-2 italic text-lg">
