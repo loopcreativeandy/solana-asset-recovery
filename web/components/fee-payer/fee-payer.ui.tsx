@@ -16,7 +16,7 @@ export function FeePayerWalletButton() {
     <>
       {portalNode && <OutPortal node={portalNode} />}
       {feePayer.publicKey?.toBase58() === wallet.publicKey?.toBase58() ? (
-        <div className="text-red-600">
+        <div className="alert alert-warning">
           You need to connect different wallets
         </div>
       ) : (

@@ -16,11 +16,13 @@ const links: { label: string; href: string }[] = [
 export default function DashboardFeature() {
   return (
     <div>
-      <AppHero title="gm" subtitle="Solandys recovery tool." />
+      <AppHero title="gm" subtitle="Solandy's recovery tool" />
       <div className="max-w-xl mx-auto py-6 sm:px-6 lg:px-8 text-center">
         <div className="space-y-2">
-          <p>Use this tool to recover tokens, stake and other assets from wallets that are "bricked" (owned by another program).</p>
-          
+          <p>
+            Use this tool to recover tokens, stake and other assets from wallets
+            that are "bricked" (owned by another program).
+          </p>
         </div>
       </div>
     </div>

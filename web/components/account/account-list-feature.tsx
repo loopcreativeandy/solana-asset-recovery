@@ -3,6 +3,8 @@
 import { redirect } from 'next/navigation';
 import { useCompromisedContext } from '../compromised/compromised.provider';
 import { CompromisedWalletButton } from '../compromised/compromised.ui';
+import { AppHero } from '../ui/ui-layout';
+import { ModalHelp } from './account-detail-feature';
 
 export default function AccountListFeature() {
   const { publicKey } = useCompromisedContext();
@@ -12,13 +14,15 @@ export default function AccountListFeature() {
   }
 
   return (
-    <div className="hero py-[64px]">
-      <div className="hero-content text-center">
-        <div className="flex gap-2 items-center justify-center">
-          <h2 className="text-xl font-bold">Compromised wallet:</h2>
-          <CompromisedWalletButton />
-        </div>
+    <AppHero
+      title="Account"
+      subtitle="Recover assets from a wallet"
+      HelpModal={ModalHelp}
+    >
+      <div className="flex gap-2 items-center justify-center">
+        <h2 className="text-md font-bold">Compromised wallet:</h2>
+        <CompromisedWalletButton />
       </div>
-    </div>
+    </AppHero>
   );
 }

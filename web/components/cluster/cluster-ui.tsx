@@ -13,7 +13,7 @@ export function ExplorerLink({
   className,
 }: {
   path: string;
-  label: string;
+  label: ReactNode;
   className?: string;
 }) {
   const { getExplorerUrl } = useCluster();
@@ -63,18 +63,18 @@ export function ClusterUiSelect() {
   const { clusters, setCluster, cluster } = useCluster();
   return (
     <div className="dropdown dropdown-end">
-      <label tabIndex={0} className="btn btn-primary rounded-btn">
+      <label tabIndex={0} className="btn btn-sm btn-neutral rounded-btn">
         {cluster.name}
       </label>
       <ul
         tabIndex={0}
-        className="menu dropdown-content z-[1] p-2 shadow bg-base-100 rounded-box w-52 mt-4"
+        className="menu dropdown-content z-[1] p-2 shadow border rounded-md bg-base-100 w-40 mt-2"
       >
         {clusters.map((item) => (
           <li key={item.name}>
             <button
               className={`btn btn-sm ${
-                item.active ? 'btn-primary' : 'btn-ghost'
+                item.active ? 'btn-outline' : 'btn-ghost'
               }`}
               onClick={() => setCluster(item)}
             >
@@ -87,13 +87,7 @@ export function ClusterUiSelect() {
   );
 }
 
-export function ClusterUiModal({
-  hideModal,
-  show,
-}: {
-  hideModal: () => void;
-  show: boolean;
-}) {
+export function ClusterUiModal() {
   const { addCluster } = useCluster();
   const [name, setName] = useState('');
   const [network, setNetwork] = useState<ClusterNetwork | undefined>();
@@ -102,12 +96,8 @@ export function ClusterUiModal({
   return (
     <AppModal
       title={'Add Cluster'}
-      hide={hideModal}
-      show={show}
-      submit={() => {
-        addCluster({ name, network, endpoint });
-        hideModal();
-      }}
+      buttonClassName="btn-primary"
+      submit={() => addCluster({ name, network, endpoint })}
       submitLabel="Save"
     >
       <input
@@ -142,7 +132,7 @@ export function ClusterUiTable() {
   const { clusters, setCluster, deleteCluster } = useCluster();
   return (
     <div className="overflow-x-auto">
-      <table className="table border-4 border-separate border-base-300">
+      <table className="table border rounded-none border-separate">
         <thead>
           <tr>
             <th>Name/ Network / Endpoint</th>
@@ -160,7 +150,7 @@ export function ClusterUiTable() {
                     ) : (
                       <button
                         title="Select cluster"
-                        className="link link-secondary"
+                        className="link link-primary"
                         onClick={() => setCluster(item)}
                       >
                         {item.name}
@@ -171,9 +161,7 @@ export function ClusterUiTable() {
                 <span className="text-xs">
                   Network: {item.network ?? 'custom'}
                 </span>
-                <div className="whitespace-nowrap text-gray-500 text-xs">
-                  {item.endpoint}
-                </div>
+                <div className="text-gray-500 text-xs">{item.endpoint}</div>
               </td>
               <td className="space-x-2 whitespace-nowrap text-center">
                 <button

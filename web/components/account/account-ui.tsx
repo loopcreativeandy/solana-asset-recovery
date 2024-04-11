@@ -1,6 +1,6 @@
 'use client';
 
-import { TOKEN_PROGRAM_ID } from '@solana/spl-token';
+import { ACCOUNT_SIZE, TOKEN_PROGRAM_ID } from '@solana/spl-token';
 import {
   AccountInfo,
   LAMPORTS_PER_SOL,
@@ -9,7 +9,7 @@ import {
 } from '@solana/web3.js';
 import { IconRefresh } from '@tabler/icons-react';
 import { useQueryClient } from '@tanstack/react-query';
-import { useCallback, useMemo, useState } from 'react';
+import { ChangeEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { useCluster } from '../cluster/cluster-data-access';
 import { ExplorerLink } from '../cluster/cluster-ui';
 import { useCompromisedContext } from '../compromised/compromised.provider';
@@ -25,22 +25,40 @@ import {
   useRequestAirdrop,
   useTransferSol,
   useWalletBrick,
-  useWalletRecovery,
+  useWalletTokenRecovery,
   useWalletStakeRecovery,
   useWalletUnbrick,
+  useWalletSolRecovery,
+  computeRent,
+  ParsedTokenAccount,
+  useWalletCleanup,
 } from './account-data-access';
+import { PriceInfo, useTokensContext } from '../tokens/tokens-provider';
 
-export function AccountBalance({ address }: { address: PublicKey }) {
+export function AccountBalance({
+  address,
+  canRecover,
+  isBricked,
+}: {
+  address: PublicKey;
+  canRecover?: boolean;
+  isBricked?: boolean;
+}) {
   const query = useGetAccount({ address });
 
   return (
-    <div>
+    <div className="flex flex-row justify-center items-center gap-2">
       <h1
         className="text-xl font-bold cursor-pointer"
         onClick={() => query.refetch()}
       >
         {query.data ? <BalanceSol balance={query.data.lamports} /> : '...'} SOL
       </h1>
+      {canRecover &&
+        (!isBricked ||
+          (query.data?.lamports || 0) > computeRent(ACCOUNT_SIZE)) && (
+          <ModalRecoverSol isBricked={isBricked} />
+        )}
     </div>
   );
 }
@@ -63,17 +81,19 @@ export function AccountBalanceCheck({ address }: { address: PublicKey }) {
     return (
       <div className="alert alert-warning text-warning-content/80 rounded-none flex justify-center">
         <span>
-          You are connected to <strong>{cluster.name}</strong> but your account
-          is not found on this cluster.
+          You are connected to <strong>{cluster.name}</strong> but your wallet
+          has no funds on this cluster.
         </span>
-        <button
-          className="btn btn-xs btn-neutral"
-          onClick={() =>
-            mutation.mutateAsync(1).catch((err) => console.log(err))
-          }
-        >
-          Request Airdrop
-        </button>
+        {cluster.network !== 'mainnet-beta' && (
+          <button
+            className="btn btn-xs btn-neutral"
+            onClick={() =>
+              mutation.mutateAsync(1).catch((err) => console.log(err))
+            }
+          >
+            Request Airdrop
+          </button>
+        )}
       </div>
     );
   }
@@ -89,88 +109,71 @@ export function AccountButtons({
   canBrick: boolean;
   canUnbrick: boolean;
 }) {
-  const wallet = useCompromisedContext();
-  const { cluster } = useCluster();
-  const [showAirdropModal, setShowAirdropModal] = useState(false);
-  const [showReceiveModal, setShowReceiveModal] = useState(false);
-  const [showSendModal, setShowSendModal] = useState(false);
-  const [showBrickModal, setShowBrickModal] = useState(false);
-  const [showUnbrickModal, setShowUnbrickModal] = useState(false);
-
   return (
     <div>
-      <ModalAirdrop
-        hide={() => setShowAirdropModal(false)}
-        address={address}
-        show={showAirdropModal}
-      />
-      <ModalReceive
-        address={address}
-        show={showReceiveModal}
-        hide={() => setShowReceiveModal(false)}
-      />
-      <ModalSend
-        address={address}
-        show={showSendModal}
-        hide={() => setShowSendModal(false)}
-      />
-      <ModalBrick show={showBrickModal} hide={() => setShowBrickModal(false)} />
-      <ModalUnbrick
-        show={showUnbrickModal}
-        hide={() => setShowUnbrickModal(false)}
-      />
-      <div className="space-x-2">
-        <button
-          disabled={cluster.network?.includes('mainnet')}
-          className="btn btn-xs lg:btn-md btn-outline"
-          onClick={() => setShowAirdropModal(true)}
-        >
-          Airdrop
-        </button>
-        <button
-          disabled={wallet.publicKey?.toString() !== address.toString()}
-          className="btn btn-xs lg:btn-md btn-outline"
-          onClick={() => setShowSendModal(true)}
-        >
-          Send
-        </button>
-        <button
-          className="btn btn-xs lg:btn-md btn-outline"
-          onClick={() => setShowReceiveModal(true)}
-        >
-          Receive
-        </button>
-        {canBrick && (
-          <button
-            className="btn btn-xs lg:btn-md btn-outline"
-            onClick={() => setShowBrickModal(true)}
-          >
-            Brick
-          </button>
-        )}
-        {canUnbrick && (
-          <button
-            className="btn btn-xs lg:btn-md btn-outline"
-            onClick={() => setShowUnbrickModal(true)}
-          >
-            Unbrick
-          </button>
-        )}
+      <div className="flex flex-wrap justify-center gap-2">
+        <ModalAirdrop address={address} />
+        <ModalReceive address={address} />
+        <ModalSend address={address} />
+        {canBrick && <ModalBrick />}
+        {canUnbrick && <ModalUnbrick />}
       </div>
     </div>
   );
 }
 
 export function AccountTokens({ address }: { address: PublicKey }) {
+  const { tokens, getPrices } = useTokensContext();
   const [showAll, setShowAll] = useState(false);
   const query = useGetTokenAccounts({ address });
   const client = useQueryClient();
-  const items = useMemo(() => {
-    if (showAll) return query.data;
-    return query.data?.slice(0, 5);
-  }, [query.data, showAll]);
+  const cleanupAccounts = useMemo(
+    () =>
+      query.isFetched &&
+      query.data?.filter(
+        (a) => a.account.data.parsed.info.tokenAmount.uiAmount === 0
+      ),
+    [query]
+  );
+  const [tokenPrices, setTokenPrices] = useState<Record<string, PriceInfo>>({});
+  useEffect(() => {
+    if (query.isFetched && query.data) {
+      (async function () {
+        const prices = await getPrices(query.data);
+        setTokenPrices(prices);
+      })();
+    }
+  }, [getPrices, query.data]);
+  const sortedTokens = useMemo(
+    () =>
+      query.data
+        ?.sort((a, b) => {
+          const {
+            mint: aMint,
+            tokenAmount: { uiAmount: aUiAmount },
+          } = a.account.data.parsed.info;
+          const {
+            mint: bMint,
+            tokenAmount: { uiAmount: bUiAmount },
+          } = b.account.data.parsed.info;
+          if (tokenPrices[aMint]) {
+            if (tokenPrices[bMint]) {
+              return (
+                tokenPrices[bMint].price * bUiAmount -
+                tokenPrices[aMint].price * aUiAmount
+              );
+            }
+            return -1;
+          } else if (tokenPrices[bMint]) {
+            return 1;
+          }
+          return bUiAmount - aUiAmount;
+        })
+        .slice(0, showAll ? undefined : 5),
+    [query.data, tokenPrices, showAll]
+  );
 
-  const mutation = useWalletRecovery({ address });
+  const mutation = useWalletTokenRecovery({ address });
   const feePayer = useFeePayerContext();
   const handleRecover = useCallback(
     async (accounts: {
@@ -191,12 +194,15 @@ export function AccountTokens({ address }: { address: PublicKey }) {
       <div className="justify-between">
         <div className="flex justify-between">
           <h2 className="text-2xl font-bold">Token Accounts</h2>
-          <div className="space-x-2">
+          <div className="flex gap-2 items-center">
+            {!!cleanupAccounts && cleanupAccounts.length > 0 && (
+              <ModalCleanup accounts={cleanupAccounts} />
+            )}
             {query.isLoading ? (
               <span className="loading loading-spinner"></span>
             ) : (
               <button
-                className="btn btn-sm btn-outline"
+                className="btn btn-xs btn-outline"
                 onClick={async () => {
                   await query.refetch();
                   await client.invalidateQueries({
@@ -211,84 +217,111 @@ export function AccountTokens({ address }: { address: PublicKey }) {
         </div>
       </div>
       {query.isError && (
-        <pre className="alert alert-error">
+        <pre className="alert alert-warning">
           Error: {query.error?.message.toString()}
         </pre>
       )}
       {query.isSuccess && (
         <div>
-          {query.data.length === 0 ? (
+          {sortedTokens?.length === 0 ? (
             <div>No token accounts found.</div>
           ) : (
-            <table className="table border-4 rounded-lg border-separate border-base-300">
-              <thead>
-                <tr>
-                  <th>Public Key</th>
-                  <th>Mint</th>
-                  <th className="text-right">Balance</th>
-                  <th className="text-right">Recovery</th>
-                </tr>
-              </thead>
-              <tbody>
-                {items?.map(({ account, pubkey }) => (
-                  <tr key={pubkey.toString()}>
-                    <td>
-                      <div className="flex space-x-2">
-                        <span className="font-mono">
+            <div className="overflow-auto">
+              <table className="table border rounded-none border-collapse w-full">
+                <thead>
+                  <tr>
+                    <th>Public Key</th>
+                    <th>Mint</th>
+                    <th className="text-right">Balance</th>
+                    <th className="text-right"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sortedTokens?.map(({ account, pubkey }) => {
+                    const mint = account.data.parsed.info.mint;
+                    const token = tokens[mint];
+                    return (
+                      <tr key={pubkey.toString()}>
+                        <td>
+                          <div className="flex space-x-2">
+                            <span className="font-mono">
+                              <ExplorerLink
+                                label={ellipsify(pubkey.toString())}
+                                path={`account/${pubkey.toString()}`}
+                              />
+                            </span>
+                          </div>
+                        </td>
+                        <td>
                           <ExplorerLink
-                            label={ellipsify(pubkey.toString())}
-                            path={`account/${pubkey.toString()}`}
-                          />
-                        </span>
-                      </div>
-                    </td>
-                    <td>
-                      <div className="flex space-x-2">
-                        <span className="font-mono">
-                          <ExplorerLink
-                            label={ellipsify(account.data.parsed.info.mint)}
+                            label={
+                              <div className="flex items-center gap-1">
+                                {token ? (
+                                  <>
+                                    <img
+                                      src={token.logoURI}
+                                      alt={token.symbol}
+                                      className="w-5 h-5"
+                                    />
+                                    <span>{token.symbol}</span>
+                                  </>
+                                ) : (
+                                  ellipsify(account.data.parsed.info.mint)
+                                )}
+                              </div>
+                            }
                             path={`account/${account.data.parsed.info.mint.toString()}`}
                           />
-                        </span>
-                      </div>
-                    </td>
-                    <td className="text-right">
-                      <span className="font-mono">
-                        {account.data.parsed.info.tokenAmount.uiAmount}
-                        {/* <AccountTokenBalance address={pubkey} /> */}
-                      </span>
-                    </td>
-                    <td className="text-right">
-                      <button
-                        className="btn btn-xs btn-outline"
-                        disabled={mutation.isPending}
-                        onClick={() => {
-                          handleRecover({
-                            pubkey: pubkey,
-                            account: account,
-                          });
-                        }}
-                      >
-                        Recover
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                        </td>
+                        <td className="text-right">
+                          <div className="font-mono">
+                            {account.data.parsed.info.tokenAmount.uiAmount}
+                          </div>
+                          {tokenPrices[mint] && (
+                            <small>
+                              ~
+                              <Price
+                                price={
+                                  tokenPrices[mint].price *
+                                  account.data.parsed.info.tokenAmount.uiAmount
+                                }
+                              />
+                            </small>
+                          )}
+                        </td>
+                        <td className="text-right">
+                          <button
+                            className="btn btn-xs btn-outline"
+                            disabled={mutation.isPending}
+                            onClick={() => {
+                              handleRecover({
+                                pubkey: pubkey,
+                                account: account,
+                              });
+                            }}
+                          >
+                            Recover
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
 
-                {(query.data?.length ?? 0) > 5 && (
-                  <tr>
-                    <td colSpan={4} className="text-center">
-                      <button
-                        className="btn btn-xs btn-outline"
-                        onClick={() => setShowAll(!showAll)}
-                      >
-                        {showAll ? 'Show Less' : 'Show All'}
-                      </button>
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
+                  {(query.data?.length ?? 0) > 5 && (
+                    <tr>
+                      <td colSpan={4} className="text-center">
+                        <button
+                          className="btn btn-xs btn-outline"
+                          onClick={() => setShowAll(!showAll)}
+                        >
+                          {showAll ? 'Show Less' : 'Show All'}
+                        </button>
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
           )}
         </div>
       )}
@@ -305,7 +338,7 @@ export function AccountNFTs({ address }: { address: PublicKey }) {
     return query.data?.slice(0, 12) || [];
   }, [query.data, showAll]);
 
-  const mutation = useWalletRecovery({ address });
+  const mutation = useWalletTokenRecovery({ address });
   const feePayer = useFeePayerContext();
   const handleRecover = useCallback(
     async (accounts: {
@@ -346,7 +379,7 @@ export function AccountNFTs({ address }: { address: PublicKey }) {
         </div>
       </div>
       {query.isError && (
-        <pre className="alert alert-error">
+        <pre className="alert alert-warning">
           Error: {query.error?.message.toString()}
         </pre>
       )}
@@ -355,9 +388,9 @@ export function AccountNFTs({ address }: { address: PublicKey }) {
           {query.data.length === 0 ? (
             <div>No NFTs found.</div>
           ) : (
-            <div className="flex flex-wrap gap-4 justify-center">
+            <div className="flex flex-wrap gap-2 justify-start">
               {items?.map((n) => (
-                <div key={n.id} className="w-40 flex flex-col gap-2">
+                <div key={n.id} className="w-40 flex flex-col gap-2 border p-1">
                   <div className="flex space-x-2">
                     <span className="font-mono">
                       <ExplorerLink
@@ -366,7 +399,7 @@ export function AccountNFTs({ address }: { address: PublicKey }) {
                       />
                     </span>
                   </div>
-                  <div>
+                  <div className="whitespace-nowrap overflow-hidden text-ellipsis max-w-full">
                     {n.content?.metadata.name || n.content?.metadata.symbol}
                   </div>
                   <img
@@ -376,7 +409,9 @@ export function AccountNFTs({ address }: { address: PublicKey }) {
                     className="w-40 h-40"
                   />
                   {!!n.ownership.delegate ? (
-                    <i>Frozen</i>
+                    <button className="btn btn-xs btn-outline" disabled>
+                      Frozen
+                    </button>
                   ) : (
                     <button
                       className="btn btn-xs btn-outline"
@@ -415,17 +450,16 @@ export function AccountNFTs({ address }: { address: PublicKey }) {
                   )}
                 </div>
               ))}
-
-              {(query.data?.length ?? 0) > 12 && (
-                <div className="text-center">
-                  <button
-                    className="btn btn-xs btn-outline"
-                    onClick={() => setShowAll(!showAll)}
-                  >
-                    {showAll ? 'Show Less' : 'Show All'}
-                  </button>
-                </div>
-              )}
+            </div>
+          )}
+          {(query.data?.length ?? 0) > 12 && (
+            <div className="text-center mt-4">
+              <button
+                className="btn btn-xs btn-outline"
+                onClick={() => setShowAll(!showAll)}
+              >
+                {showAll ? 'Show Less' : 'Show All'}
+              </button>
             </div>
           )}
         </div>
@@ -482,7 +516,7 @@ export function AccountStakeAccounts({ address }: { address: PublicKey }) {
         </div>
       </div>
       {query.isError && (
-        <pre className="alert alert-error">
+        <pre className="alert alert-warning">
           Error: {query.error?.message.toString()}
         </pre>
       )}
@@ -491,13 +525,13 @@ export function AccountStakeAccounts({ address }: { address: PublicKey }) {
           {query.data.length === 0 ? (
             <div>No stake accounts found.</div>
           ) : (
-            <table className="table border-4 rounded-lg border-separate border-base-300">
+            <table className="table border rounded-none border-separate">
               <thead>
                 <tr>
                   <th>Public Key</th>
                   <th>Validator</th>
                   <th className="text-right">Stake</th>
-                  <th className="text-right">Recovery</th>
+                  <th className="text-right"></th>
                 </tr>
               </thead>
               <tbody>
@@ -607,7 +641,7 @@ export function AccountTransactions({ address }: { address: PublicKey }) {
         </div>
       </div>
       {query.isError && (
-        <pre className="alert alert-error">
+        <pre className="alert alert-warning">
           Error: {query.error?.message.toString()}
         </pre>
       )}
@@ -616,7 +650,7 @@ export function AccountTransactions({ address }: { address: PublicKey }) {
           {query.data.length === 0 ? (
             <div>No transactions found.</div>
           ) : (
-            <table className="table border-4 rounded-lg border-separate border-base-300">
+            <table className="table border rounded-none border-separate">
               <thead>
                 <tr>
                   <th>Signature</th>
@@ -646,7 +680,7 @@ export function AccountTransactions({ address }: { address: PublicKey }) {
                     <td className="text-right">
                       {item.err ? (
                         <div
-                          className="badge badge-error"
+                          className="badge badge-warning"
                           title={JSON.stringify(item.err)}
                         >
                           Failed
@@ -684,43 +718,86 @@ function BalanceSol({ balance }: { balance: number }) {
   );
 }
 
-function ModalReceive({
-  hide,
-  show,
-  address,
-}: {
-  hide: () => void;
-  show: boolean;
-  address: PublicKey;
-}) {
+const formatter = new Intl.NumberFormat(undefined, {
+  style: 'currency',
+  currency: 'USD',
+});
+function Price({ price }: { price: number }) {
+  return formatter.format(price);
+}
+
+function ModalRecoverSol({ isBricked }: { isBricked?: boolean }) {
+  const feePayer = useFeePayerContext();
+  const mutation = useWalletSolRecovery();
+  const [shouldBrick, setShouldBrick] = useState(!!isBricked);
+  useEffect(() => {
+    setShouldBrick(!!isBricked);
+  }, [isBricked]);
+
   return (
-    <AppModal title="Receive" hide={hide} show={show}>
+    <AppModal
+      title="Recover SOL"
+      buttonClassName="btn-xs btn-outline"
+      buttonLabel="Recover"
+      submitDisabled={mutation.isPending}
+      submitLabel="Recover"
+      submit={() =>
+        mutation
+          .mutateAsync({ needsUnbrick: !!isBricked, shouldBrick })
+          .then(() => true)
+      }
+    >
+      {isBricked && (
+        <div className="alert">
+          Wallet is bricked. It'll be unbricked to recover the SOL. We suggest
+          to leave it bricked after.
+        </div>
+      )}
+      <fieldset className="flex gap-2">
+        <input
+          type="checkbox"
+          checked={shouldBrick}
+          onChange={(e: ChangeEvent<HTMLInputElement>) =>
+            setShouldBrick(e.target.checked)
+          }
+          id="shouldBrick"
+        />
+        <label htmlFor="shouldBrick">Brick after recovering</label>
+      </fieldset>
+      {shouldBrick && (
+        <div className="alert alert-warning">
+          You will only be able to unbrick it with your safe wallet{' '}
+          <b>
+            <ExplorerLink
+              path={`/account/${feePayer.publicKey?.toBase58()}`}
+              label={ellipsify(feePayer.publicKey?.toBase58())}
+            />
+          </b>
+        </div>
+      )}
+    </AppModal>
+  );
+}
+
+function ModalReceive({ address }: { address: PublicKey }) {
+  return (
+    <AppModal title="Receive">
       <p>You can receive assets by sending them to your public key:</p>
       <code>{address.toString()}</code>
     </AppModal>
   );
 }
 
-function ModalAirdrop({
-  hide,
-  show,
-  address,
-}: {
-  hide: () => void;
-  show: boolean;
-  address: PublicKey;
-}) {
+function ModalAirdrop({ address }: { address: PublicKey }) {
   const mutation = useRequestAirdrop({ address });
   const [amount, setAmount] = useState('2');
 
   return (
     <AppModal
-      hide={hide}
-      show={show}
       title="Airdrop"
       submitDisabled={!amount || mutation.isPending}
       submitLabel="Request Airdrop"
-      submit={() => mutation.mutateAsync(parseFloat(amount)).then(() => hide())}
+      submit={() => mutation.mutateAsync(parseFloat(amount)).then(() => true)}
     >
       <input
         disabled={mutation.isPending}
@@ -736,15 +813,7 @@ function ModalAirdrop({
   );
 }
 
-function ModalSend({
-  hide,
-  show,
-  address,
-}: {
-  hide: () => void;
-  show: boolean;
-  address: PublicKey;
-}) {
+function ModalSend({ address }: { address: PublicKey }) {
   const wallet = useCompromisedContext();
   const mutation = useTransferSol({ address });
   const [destination, setDestination] = useState('');
@@ -756,19 +825,17 @@ function ModalSend({
 
   return (
     <AppModal
-      hide={hide}
-      show={show}
       title="Send"
       submitDisabled={!destination || !amount || mutation.isPending}
       submitLabel="Send"
-      submit={() => {
+      submit={() =>
         mutation
           .mutateAsync({
             destination: new PublicKey(destination),
             amount: parseFloat(amount),
           })
-          .then(() => hide());
-      }}
+          .then(() => true)
+      }
     >
       <input
         disabled={mutation.isPending}
@@ -792,22 +859,19 @@ function ModalSend({
   );
 }
 
-function ModalBrick({ hide, show }: { hide: () => void; show: boolean }) {
+function ModalBrick() {
   const feePayer = useFeePayerContext();
   const mutation = useWalletBrick();
 
   return (
     <AppModal
-      hide={hide}
-      show={show}
       title="Brick"
+      buttonClassName="btn-warning"
       submitDisabled={mutation.isPending}
       submitLabel="Brick"
-      submit={() => {
-        mutation.mutateAsync().then(() => hide());
-      }}
+      submit={() => mutation.mutateAsync().then(() => true)}
     >
-      <div className="text-red-600">
+      <div className="alert alert-warning">
         Be careful! This will make your wallet unusable, only use if your seed
         or private wallet was leaked and you don't want others might able to use
         it on certain websites.
@@ -825,23 +889,40 @@ function ModalBrick({ hide, show }: { hide: () => void; show: boolean }) {
   );
 }
 
-function ModalUnbrick({ hide, show }: { hide: () => void; show: boolean }) {
+function ModalUnbrick() {
   const mutation = useWalletUnbrick();
 
   return (
     <AppModal
-      hide={hide}
-      show={show}
       title="Unbrick"
+      buttonClassName="btn-warning"
       submitDisabled={mutation.isPending}
       submitLabel="Unbrick"
-      submit={() => {
-        mutation.mutateAsync().then(() => hide());
-      }}
+      submit={() => mutation.mutateAsync().then(() => true)}
     >
-      <div className="text-red-600">
+      <div className="alert alert-warning">
         This will make your wallet usable again. If your seed or private wallet
         was leaked, others would be able to use it on certain websites.
+      </div>
+    </AppModal>
+  );
+}
+
+function ModalCleanup({ accounts }: { accounts: ParsedTokenAccount[] }) {
+  const mutation = useWalletCleanup();
+
+  return (
+    <AppModal
+      title="Cleanup"
+      buttonClassName="btn-xs btn-neutral"
+      buttonLabel="Cleanup"
+      submitDisabled={mutation.isPending}
+      submitLabel="Cleanup"
+      submit={() => mutation.mutateAsync({ accounts }).then(() => true)}
+    >
+      <div>
+        Closing <b>{accounts.length}</b> token accounts for{' '}
+        {(accounts.length * computeRent(ACCOUNT_SIZE)) / LAMPORTS_PER_SOL} SOL
       </div>
     </AppModal>
   );

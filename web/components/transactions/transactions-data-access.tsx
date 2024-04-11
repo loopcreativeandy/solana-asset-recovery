@@ -198,11 +198,13 @@ export type SimulateResult = SimulatedTransactionResponse & {
     mint?: RawMint;
     owner?: PublicKey;
     before: {
-      tokenAmount?: Number;
+      authority?: PublicKey;
+      tokenAmount?: number;
       lamports: number;
     };
     after: {
-      tokenAmount?: Number;
+      authority?: PublicKey;
+      tokenAmount?: number;
       lamports: number;
     };
     writable: boolean;
@@ -321,6 +323,10 @@ export async function simulateTransaction(
           undefined,
         owner,
         before: {
+          authority:
+            beforeAcc?.type === 'token-account'
+              ? beforeAcc.acc.owner
+              : undefined,
           tokenAmount:
             beforeAcc?.type === 'token-account'
               ? Number(beforeAcc.acc.amount)
@@ -328,6 +334,8 @@ export async function simulateTransaction(
           lamports: beforeAcc?.lamports || 0,
         },
         after: {
+          authority:
+            afterAcc?.type === 'token-account' ? afterAcc.acc.owner : undefined,
           tokenAmount:
             afterAcc?.type === 'token-account'
               ? Number(afterAcc.acc.amount)
@@ -386,7 +394,7 @@ export async function buildTransactionFromPayload(
           instructions: decodedTransaction.instructions,
         }).compileToV0Message(decodedTransaction.addressLookupTableAccounts)
       ),
-      PriorityLevel.Default
+      PriorityLevel.High
     );
     instructions = [
       ComputeBudgetProgram.setComputeUnitPrice({
