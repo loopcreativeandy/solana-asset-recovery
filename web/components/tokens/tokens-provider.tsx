@@ -60,7 +60,7 @@ function useTokens(): TokensContextProps {
         []
       );
       const prices: { data: Record<string, PriceInfo> } = await fetch(
-        `https://price.jup.ag/v4/price?ids=${ids.join(',')}`
+        `https://price.jup.ag/v4/price?ids=${ids.slice(0, 100).join(',')}`
       ).then((r) => r.json());
       return prices.data;
     },
