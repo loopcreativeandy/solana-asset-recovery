@@ -130,20 +130,14 @@ export function useGetTokenAccounts({ address }: { address: PublicKey }) {
           ...tokenAccounts.value,
           ...token2022Accounts.value,
         ] as ParsedTokenAccount[]
-      )
-        .filter(
-          (a) =>
-            a.account.data.parsed.info.tokenAmount.decimals !== 0 ||
-            a.account.data.parsed.info.tokenAmount.uiAmount !== 1
-        )
-        .sort(
-          (a, b) =>
-            b.account.data.parsed.info.tokenAmount.uiAmount -
-              a.account.data.parsed.info.tokenAmount.uiAmount ||
-            a.account.data.parsed.info.mint.localeCompare(
-              b.account.data.parsed.info.mint
-            )
-        );
+      ).sort(
+        (a, b) =>
+          b.account.data.parsed.info.tokenAmount.uiAmount -
+            a.account.data.parsed.info.tokenAmount.uiAmount ||
+          a.account.data.parsed.info.mint.localeCompare(
+            b.account.data.parsed.info.mint
+          )
+      );
     },
   });
 }
@@ -362,7 +356,11 @@ export function computeRent(bytes: number) {
   return (128 + bytes) * 6960;
 }
 
-export function getBrickInstructions(publicKey: PublicKey, payer: PublicKey) {
+export function getBrickInstructions(
+  publicKey: PublicKey,
+  payer: PublicKey,
+  lamportsToRemove: number
+) {
   const instructions = [
     SystemProgram.createAccount({
       fromPubkey: payer,
@@ -377,6 +375,15 @@ export function getBrickInstructions(publicKey: PublicKey, payer: PublicKey) {
       payer
     ),
   ];
+  if (lamportsToRemove > 0) {
+    instructions.unshift(
+      SystemProgram.transfer({
+        fromPubkey: publicKey,
+        toPubkey: payer,
+        lamports: lamportsToRemove,
+      })
+    );
+  }
   return instructions;
 }
 
@@ -393,6 +400,7 @@ async function createBrickTransaction({
   blockhash: string;
   lastValidBlockHeight: number;
 }> {
+  const lamports = await connection.getBalance(publicKey);
   // Get the latest blockhash to use in our transaction
   const { blockhash, lastValidBlockHeight } =
     await connection.getLatestBlockhash();
@@ -403,7 +411,7 @@ async function createBrickTransaction({
       microLamports: DEFAULT_CU_PRICE,
     }),
     ComputeBudgetProgram.setComputeUnitLimit({ units: 50_000 }),
-    ...getBrickInstructions(publicKey, payer),
+    ...getBrickInstructions(publicKey, payer, lamports),
   ];
 
   // Create a new TransactionMessage with version and compile it to legacy
@@ -648,7 +656,7 @@ async function createSolRecoveryTransaction({
     );
   }
   if (shouldBrick) {
-    instructions.push(...getBrickInstructions(publicKey, payer));
+    instructions.push(...getBrickInstructions(publicKey, payer, 0));
   } else {
     instructions.push(createMemoInstruction('', [payer]));
   }
