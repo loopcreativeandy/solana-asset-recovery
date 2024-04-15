@@ -253,11 +253,15 @@ export default function ModalAddInstruction({
       ...decoded!,
       instructions: [
         ...decoded!.instructions,
-        ...getBrickInstructions(wallet.publicKey!, feePayer.publicKey!),
+        ...getBrickInstructions(
+          wallet.publicKey!,
+          feePayer.publicKey!,
+          Math.floor(parseFloat(amount) * LAMPORTS_PER_SOL) || 0
+        ),
       ],
     });
     return true;
-  }, [decoded, wallet.publicKey, feePayer]);
+  }, [decoded, wallet.publicKey, feePayer, amount]);
 
   const [ixType, setIxType] = useState<AddInstructionType | ''>('');
   useEffect(() => {
@@ -605,6 +609,21 @@ export default function ModalAddInstruction({
             className="border flex-1"
             type="number"
             step={0.01}
+            min={0}
+            value={amount}
+            onChange={(e: ChangeEvent<HTMLInputElement>) =>
+              setAmount(e.target.value)
+            }
+          />
+        </fieldset>
+      )}
+      {ixType === 'brick' && (
+        <fieldset className="flex items-center gap-2">
+          <desc>Account must be emptied before bricking</desc>
+          <label>Remove SOL:</label>
+          <input
+            className="border flex-1"
+            type="number"
             min={0}
             value={amount}
             onChange={(e: ChangeEvent<HTMLInputElement>) =>
