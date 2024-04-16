@@ -439,7 +439,7 @@ export default function ModalAddInstruction({
           </fieldset>
           <fieldset className="flex items-center gap-2">
             <label>From:</label>
-            <select disabled value={fromOwner} className="border flex-1">
+            <select value={fromOwner} className="border flex-1">
               <option>Other</option>
               <option value={wallet.publicKey?.toBase58()}>
                 Compromised wallet
