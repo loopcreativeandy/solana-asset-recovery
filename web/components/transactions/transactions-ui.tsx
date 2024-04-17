@@ -2,13 +2,18 @@
 
 import { base58 } from '@metaplex-foundation/umi/serializers';
 import { useConnection } from '@solana/wallet-adapter-react';
-import { AccountMeta, PublicKey } from '@solana/web3.js';
-import { useEffect, useState } from 'react';
+import {
+  AccountMeta,
+  PublicKey,
+  TransactionInstruction,
+} from '@solana/web3.js';
+import { ChangeEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { ExplorerLink } from '../cluster/cluster-ui';
 import { useCompromisedContext } from '../compromised/compromised.provider';
 import { useFeePayerContext } from '../fee-payer/fee-payer.provider';
 import { FeePayerWalletButton } from '../fee-payer/fee-payer.ui';
 import { resendAndConfirmTransaction } from '../solana/solana-data-access';
+import { tryDecodeInstruction } from '../solana/solana-utils';
 import { ellipsify, useTransactionToast } from '../ui/ui-layout';
 import ModalAddInstruction from './modal-add-instruction/ModalAddInstruction';
 import {
@@ -22,6 +27,127 @@ import {
 
 enum Routing {
   PioneerLegends = 'PioneerLegends',
+}
+
+interface InstructionProps {
+  ix: number;
+  i: TransactionInstruction;
+  transaction: DecodedTransaction;
+  setTransaction: (value: DecodedTransaction) => void;
+}
+
+function Instruction({ ix, i, transaction, setTransaction }: InstructionProps) {
+  const onMoveUp = useCallback(
+    () =>
+      setTransaction({
+        ...transaction,
+        instructions: move(transaction.instructions, ix, -1),
+      }),
+    [transaction, ix]
+  );
+  const onMoveDown = useCallback(
+    () =>
+      setTransaction({
+        ...transaction,
+        instructions: move(transaction.instructions, ix, 1),
+      }),
+    [transaction]
+  );
+  const onDelete = useCallback(
+    () =>
+      setTransaction({
+        ...transaction,
+        instructions: transaction.instructions.filter((_, dx) => dx !== ix),
+      }),
+    [transaction]
+  );
+  const onChangeAccount = (sx: number) => (e: ChangeEvent<HTMLInputElement>) =>
+    setTransaction({
+      ...transaction,
+      instructions: transaction.instructions.map((d, dx) =>
+        dx === ix
+          ? {
+              ...d,
+              keys: d.keys.map((k, kx) =>
+                kx === sx
+                  ? ({
+                      pubkey: new PublicKey(e.target.value),
+                      isSigner: k.isSigner,
+                      isWritable: k.isWritable,
+                    } as AccountMeta)
+                  : k
+              ),
+            }
+          : d
+      ),
+    });
+  const parsed = useMemo(() => tryDecodeInstruction(i), [i]);
+
+  return (
+    <div className="text-left w-full">
+      <hr className="mb-4 mt-4" />
+      <div className="flex items-center gap-4">
+        <b className="flex-1">Instruction #{ix}</b>
+        <button
+          className="btn btn-neutral"
+          disabled={ix <= 0}
+          onClick={onMoveUp}
+        >
+          ↑
+        </button>
+        <button
+          className="btn btn-neutral"
+          disabled={ix >= transaction.instructions.length - 1}
+          onClick={onMoveDown}
+        >
+          ↓
+        </button>
+        <button className="btn" onClick={onDelete}>
+          &times;
+        </button>
+      </div>
+      <div>
+        <b>Program:</b>{' '}
+        <ExplorerLink
+          label={ellipsify(i.programId.toBase58())}
+          path={`/account/${i.programId.toBase58()}`}
+        />
+      </div>
+      <div>
+        <b>Accounts: </b>
+        {i.keys.length === 0 && <i>No accounts required</i>}
+        {i.keys.map((s, sx) => (
+          <div key={sx} className="flex gap-2">
+            <b>#{sx}:</b>
+            <input
+              className="border flex-1"
+              value={s.pubkey.toBase58()}
+              onChange={onChangeAccount(sx)}
+            />
+            {s.isWritable && <span>Writable</span>}
+            {s.isSigner && <b>Signer</b>}
+          </div>
+        ))}
+      </div>
+      <div className="text-wrap break-all max-w-40 max-h-20 overflow-auto">
+        <b>Data:</b>
+        <textarea
+          readOnly
+          rows={2}
+          value={base58.deserialize(new Uint8Array(i.data))[0]}
+          className="border block w-full"
+        />
+      </div>
+      {parsed && (
+        <div>
+          <b>Decoded:</b>
+          <pre className="border w-full overflow-auto">
+            {JSON.stringify(parsed, null, 2)}
+          </pre>
+        </div>
+      )}
+    </div>
+  );
 }
 
 export function TransactionUi() {
@@ -183,104 +309,13 @@ export function TransactionUi() {
               </div>
             )}
             {decoded.instructions.map((i, ix) => (
-              <div key={ix} className="text-left w-full">
-                <hr className="mb-4 mt-4" />
-                <div className="flex items-center gap-4">
-                  <b className="flex-1">Instruction #{ix}</b>
-                  <button
-                    className="btn btn-neutral"
-                    disabled={ix <= 0}
-                    onClick={() =>
-                      setDecoded({
-                        ...decoded,
-                        instructions: move(decoded.instructions, ix, -1),
-                      })
-                    }
-                  >
-                    ↑
-                  </button>
-                  <button
-                    className="btn btn-neutral"
-                    disabled={ix >= decoded.instructions.length - 1}
-                    onClick={() =>
-                      setDecoded({
-                        ...decoded,
-                        instructions: move(decoded.instructions, ix, 1),
-                      })
-                    }
-                  >
-                    ↓
-                  </button>
-                  <button
-                    className="btn"
-                    onClick={() =>
-                      setDecoded({
-                        ...decoded,
-                        instructions: decoded.instructions.filter(
-                          (d, dx) => dx !== ix
-                        ),
-                      })
-                    }
-                  >
-                    &times;
-                  </button>
-                </div>
-                <div>
-                  <b>Program:</b>{' '}
-                  <ExplorerLink
-                    label={ellipsify(i.programId.toBase58())}
-                    path={`/account/${i.programId.toBase58()}`}
-                  />
-                </div>
-                <div>
-                  <b>Accounts: </b>
-                  {i.keys.length === 0 && <i>No accounts required</i>}
-                  {i.keys.map((s, sx) => (
-                    <div key={sx} className="flex gap-2">
-                      <b>#{sx}:</b>
-                      <input
-                        className="border flex-1"
-                        value={s.pubkey.toBase58()}
-                        onChange={(e) =>
-                          setDecoded({
-                            ...decoded,
-                            instructions: decoded.instructions.map((d, dx) =>
-                              dx === ix
-                                ? {
-                                    programId: d.programId,
-                                    data: d.data,
-                                    keys: d.keys.map((k, kx) =>
-                                      kx === sx
-                                        ? ({
-                                            pubkey: new PublicKey(
-                                              e.target.value
-                                            ),
-                                            isSigner: k.isSigner,
-                                            isWritable: k.isWritable,
-                                          } as AccountMeta)
-                                        : k
-                                    ),
-                                  }
-                                : d
-                            ),
-                          })
-                        }
-                      />
-                      {s.isWritable && <span>Writable</span>}
-                      {s.isSigner && <b>Signer</b>}
-                    </div>
-                  ))}
-                </div>
-                <div className="text-wrap break-all max-w-40 max-h-20 overflow-auto">
-                  <b>Data:</b>
-                  <textarea
-                    readOnly
-                    rows={2}
-                    value={base58.deserialize(new Uint8Array(i.data))[0]}
-                    className="border block w-full"
-                  />
-                </div>
-              </div>
+              <Instruction
+                key={ix}
+                i={i}
+                ix={ix}
+                transaction={decoded}
+                setTransaction={setDecoded}
+              />
             ))}
           </div>
         )}

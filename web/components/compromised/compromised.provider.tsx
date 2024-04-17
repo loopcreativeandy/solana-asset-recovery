@@ -61,7 +61,7 @@ export function CompromisedStore({ children }: { children: React.ReactNode }) {
       {portalNode ? (
         <CompromisedUIContext.Provider value={portalNode}>
           <InPortal node={portalNode}>
-            <fieldset className="flex items-center gap-2">
+            <fieldset className="flex flex-col items-center gap-2">
               <WalletButton />
               {IS_DEV && (
                 <>
