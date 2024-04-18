@@ -58,13 +58,7 @@ export default function ModalAddInstruction({
   const [amount, setAmount] = useState('');
   const [bytes, setBytes] = useState('');
   const [mint, setMint] = useState('');
-  const fromOwner = useMemo(
-    () =>
-      preview?.addresses
-        .find((a) => a.pubkey === from)
-        ?.before.authority?.toBase58() || '',
-    [from, preview]
-  );
+  const [fromOwner, setFromOwner] = useState('');
 
   const handleAddATA = useCallback(() => {
     setDecoded({
@@ -147,22 +141,20 @@ export default function ModalAddInstruction({
   }, [connection, decoded, from, to, mint]);
 
   const handleAddSetAuthoritySPL = useCallback(async () => {
-    const owner = preview?.addresses.find((a) => a.pubkey === from)?.before
-      .authority!;
     setDecoded({
       ...decoded!,
       instructions: [
         ...decoded!.instructions,
         createSetAuthorityInstruction(
           new PublicKey(from),
-          owner,
+          new PublicKey(fromOwner),
           AuthorityType.AccountOwner,
           new PublicKey(to)
         ),
       ],
     });
     return true;
-  }, [decoded, from, to, preview]);
+  }, [decoded, from, fromOwner, to, preview]);
 
   const handleAddPreparePnftTransfer = useCallback(async () => {
     let instructions = [...decoded!.instructions];
@@ -439,7 +431,13 @@ export default function ModalAddInstruction({
           </fieldset>
           <fieldset className="flex items-center gap-2">
             <label>From:</label>
-            <select value={fromOwner} className="border flex-1">
+            <select
+              value={fromOwner}
+              className="border flex-1"
+              onChange={(e: ChangeEvent<HTMLSelectElement>) =>
+                setFromOwner(e.target.value)
+              }
+            >
               <option>Other</option>
               <option value={wallet.publicKey?.toBase58()}>
                 Compromised wallet
