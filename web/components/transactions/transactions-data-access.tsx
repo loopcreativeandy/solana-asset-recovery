@@ -11,7 +11,11 @@ import {
   RawAccount,
   RawMint,
   TOKEN_PROGRAM_ID,
+  TokenInstruction,
   createAssociatedTokenAccountInstruction,
+  createSetAuthorityInstruction,
+  decodeInstruction,
+  decodeSetAuthorityInstruction,
   getAssociatedTokenAddressSync,
 } from '@solana/spl-token';
 import { WalletContextState } from '@solana/wallet-adapter-react';
@@ -379,12 +383,21 @@ export async function simulateTransaction(
   };
 }
 
+function sanitize(decodedTransaction: DecodedTransaction): DecodedTransaction {
+  const instructions = decodedTransaction.instructions;
+  return {
+    ...decodedTransaction,
+    instructions,
+  };
+}
+
 export async function buildTransactionFromPayload(
   connection: Connection,
   decodedTransaction: DecodedTransaction,
   feepayer: WalletContextState,
   preview: SimulateResult
 ) {
+  decodedTransaction = sanitize(decodedTransaction);
   const { blockhash, lastValidBlockHeight } =
     await connection.getLatestBlockhash();
   let instructions = decodedTransaction.instructions;
