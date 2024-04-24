@@ -390,10 +390,10 @@ export function TransactionUi() {
                               <>
                                 <BalanceDisplay
                                   balance={a.before.tokenAmount}
+                                  decimals={a.mint?.decimals}
                                 />
                                 <BalanceDisplay
                                   balance={a.before.lamports}
-                                  decimals={9}
                                   symbol="SOL"
                                   small
                                 />
@@ -401,7 +401,6 @@ export function TransactionUi() {
                             ) : (
                               <BalanceDisplay
                                 balance={a.before.lamports}
-                                decimals={9}
                                 symbol="SOL"
                               />
                             )}
@@ -412,10 +411,10 @@ export function TransactionUi() {
                                 <>
                                   <BalanceDisplay
                                     balance={a.after.tokenAmount}
+                                    decimals={a.mint?.decimals}
                                   />
                                   <BalanceDisplay
                                     balance={a.after.lamports}
-                                    decimals={9}
                                     symbol="SOL"
                                     small
                                   />
@@ -423,7 +422,6 @@ export function TransactionUi() {
                               ) : (
                                 <BalanceDisplay
                                   balance={a.after.lamports}
-                                  decimals={9}
                                   symbol="SOL"
                                 />
                               )}
@@ -436,11 +434,11 @@ export function TransactionUi() {
                                   <BalanceChange
                                     from={a.before.tokenAmount}
                                     to={a.after.tokenAmount}
+                                    decimals={a.mint?.decimals}
                                   />
                                   <BalanceChange
                                     from={a.before.lamports}
                                     to={a.after.lamports}
-                                    decimals={9}
                                     symbol="SOL"
                                     small
                                   />
@@ -449,7 +447,6 @@ export function TransactionUi() {
                                 <BalanceChange
                                   from={a.before.lamports}
                                   to={a.after.lamports}
-                                  decimals={9}
                                   symbol="SOL"
                                 />
                               )}
@@ -502,7 +499,7 @@ export function TransactionUi() {
 
 function BalanceDisplay({
   balance = 0,
-  decimals = 0,
+  decimals = 9,
   symbol = '',
   small = false,
 }: {
@@ -525,7 +522,7 @@ function BalanceDisplay({
 function BalanceChange({
   from = 0,
   to = 0,
-  decimals = 0,
+  decimals = 9,
   symbol = '',
   small = false,
 }: {

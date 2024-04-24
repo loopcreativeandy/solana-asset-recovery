@@ -298,6 +298,21 @@ export async function simulateTransaction(
       addresses: addresses.map((a) => a.toBase58()),
     },
   });
+  const mints = addresses.reduce<PublicKey[]>((res, pubkey, ix) => {
+    const beforeAcc = parseAccount(before[ix]);
+    const afterAcc = parseAccount(result.accounts?.[ix]);
+    if (beforeAcc?.type === 'mint' || afterAcc?.type === 'mint') {
+      return [...res, pubkey];
+    } else if (beforeAcc?.type === 'token-account') {
+      return [...res, beforeAcc.acc.mint];
+    } else if (afterAcc?.type === 'token-account') {
+      return [...res, afterAcc.acc.mint];
+    }
+    return res;
+  }, []);
+  const mintAccounts = await connection
+    .getMultipleAccountsInfo(mints)
+    .then((r) => r.map((r) => MintLayout.decode(r!.data)));
 
   return {
     ...result,
@@ -316,6 +331,18 @@ export async function simulateTransaction(
         mint:
           (beforeAcc?.type === 'mint' && beforeAcc.acc) ||
           (afterAcc?.type === 'mint' && afterAcc.acc) ||
+          (beforeAcc?.type === 'token-account' &&
+            mintAccounts[
+              mints.findIndex(
+                (m) => m.toBase58() === beforeAcc.acc.mint.toBase58()
+              )
+            ]) ||
+          (afterAcc?.type === 'token-account' &&
+            mintAccounts[
+              mints.findIndex(
+                (m) => m.toBase58() === afterAcc.acc.mint.toBase58()
+              )
+            ]) ||
           undefined,
         tokenAccount:
           (beforeAcc?.type === 'token-account' && beforeAcc.acc) ||
