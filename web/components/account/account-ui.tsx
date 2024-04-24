@@ -1,6 +1,10 @@
 'use client';
 
-import { ACCOUNT_SIZE, TOKEN_PROGRAM_ID } from '@solana/spl-token';
+import {
+  ACCOUNT_SIZE,
+  TOKEN_PROGRAM_ID,
+  getAssociatedTokenAddressSync,
+} from '@solana/spl-token';
 import {
   AccountInfo,
   LAMPORTS_PER_SOL,
@@ -32,6 +36,8 @@ import {
   computeRent,
   ParsedTokenAccount,
   useWalletCleanup,
+  useWalletTokenFix,
+  wSOL,
 } from './account-data-access';
 import { PriceInfo, useTokensContext } from '../tokens/tokens-provider';
 
@@ -123,6 +129,8 @@ export function AccountButtons({
 }
 
 export function AccountTokens({ address }: { address: PublicKey }) {
+  const compromised = useCompromisedContext();
+  const feePayer = useFeePayerContext();
   const { tokens, getPrices } = useTokensContext();
   const [showAll, setShowAll] = useState(false);
   const query = useGetTokenAccounts({ address });
@@ -134,6 +142,22 @@ export function AccountTokens({ address }: { address: PublicKey }) {
         (a) => a.account.data.parsed.info.tokenAmount.uiAmount === 0
       ),
     [query]
+  );
+  const fixAccounts = useMemo(
+    () =>
+      (query.isFetched &&
+        compromised.publicKey &&
+        query.data?.filter(
+          (a) =>
+            a.account.data.parsed.info.mint !== wSOL.toBase58() &&
+            a.pubkey.toBase58() !==
+              getAssociatedTokenAddressSync(
+                new PublicKey(a.account.data.parsed.info.mint),
+                compromised.publicKey!
+              ).toBase58()
+        )) ||
+      [],
+    [query, compromised.publicKey]
   );
   const [tokenPrices, setTokenPrices] = useState<Record<string, PriceInfo>>({});
   useEffect(() => {
@@ -173,20 +197,33 @@ export function AccountTokens({ address }: { address: PublicKey }) {
     [query.data, tokenPrices, showAll]
   );
 
-  const mutation = useWalletTokenRecovery({ address });
-  const feePayer = useFeePayerContext();
+  const recoverMutation = useWalletTokenRecovery({ address });
   const handleRecover = useCallback(
     async (accounts: {
       pubkey: PublicKey;
       account: AccountInfo<ParsedAccountData>;
     }) => {
-      await mutation.mutateAsync({
+      await recoverMutation.mutateAsync({
         destination: feePayer.publicKey!,
         accounts,
       });
       query.refetch();
     },
-    [mutation, query]
+    [recoverMutation, query]
+  );
+  const fixMutation = useWalletTokenFix({ address });
+  const handleFix = useCallback(
+    async (accounts: {
+      pubkey: PublicKey;
+      account: AccountInfo<ParsedAccountData>;
+    }) => {
+      await fixMutation.mutateAsync({
+        destination: compromised.publicKey!,
+        accounts,
+      });
+      query.refetch();
+    },
+    [fixMutation, query]
   );
 
   return (
@@ -289,16 +326,27 @@ export function AccountTokens({ address }: { address: PublicKey }) {
                             </small>
                           )}
                         </td>
-                        <td className="text-right">
+                        <td className="text-right flex gap-1 items-center justify-end">
+                          {fixAccounts.some(
+                            (f) => f.pubkey.toBase58() === pubkey.toBase58()
+                          ) && (
+                            <button
+                              className="btn btn-xs btn-outline"
+                              disabled={fixMutation.isPending}
+                              onClick={() => handleFix({ pubkey, account })}
+                            >
+                              Fix
+                            </button>
+                          )}
                           <button
                             className="btn btn-xs btn-outline"
-                            disabled={mutation.isPending}
-                            onClick={() => {
+                            disabled={recoverMutation.isPending}
+                            onClick={() =>
                               handleRecover({
-                                pubkey: pubkey,
-                                account: account,
-                              });
-                            }}
+                                pubkey,
+                                account,
+                              })
+                            }
                           >
                             Recover
                           </button>

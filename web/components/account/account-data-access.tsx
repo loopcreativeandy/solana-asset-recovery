@@ -356,6 +356,8 @@ export function computeRent(bytes: number) {
   return (128 + bytes) * 6960;
 }
 
+export const wSOL = new PublicKey('So11111111111111111111111111111111111111112');
+
 export function getBrickInstructions(
   publicKey: PublicKey,
   payer: PublicKey,
@@ -371,7 +373,7 @@ export function getBrickInstructions(
     }),
     createInitializeAccountInstruction(
       publicKey,
-      new PublicKey('So11111111111111111111111111111111111111112'),
+      wSOL,
       payer
     ),
   ];
@@ -755,7 +757,7 @@ async function createTokensRecoveryTransaction({
 }> {
   // Get the latest blockhash to use in our transaction
   const { blockhash, lastValidBlockHeight } =
-    await connection.getLatestBlockhash();
+    await connection.getLatestBlockhash('finalized');
 
   let senderATA = accounts.pubkey;
   let mint = new PublicKey(accounts.account.data.parsed.info.mint);
@@ -814,6 +816,116 @@ async function createTokensRecoveryTransaction({
       )
     );
   }
+
+  if (tokenProgramId.toBase58() === TOKEN_2022_PROGRAM_ID.toBase58()) {
+    instructions.push(
+      createHarvestWithheldTokensToMintInstruction(
+        mint,
+        [senderATA],
+        tokenProgramId
+      )
+    );
+  }
+
+  // close it to recover funds
+  instructions.push(
+    createCloseAccountInstruction(
+      senderATA,
+      payer,
+      publicKey,
+      [],
+      tokenProgramId
+    )
+  );
+
+  console.log(instructions);
+
+  const [units, microLamports] = await Promise.all([
+    getRequiredComputeUnits(connection, payer, instructions, blockhash),
+    getPriorityFeeEstimate(
+      connection.rpcEndpoint,
+      getTransaction({ payer, instructions, blockhash }),
+      PriorityLevel.High
+    ),
+  ]);
+  // Create a new VersionedTransaction which supports legacy and v0
+  const transaction = getTransaction({
+    payer,
+    instructions,
+    blockhash,
+    units,
+    microLamports,
+  });
+
+  return {
+    transaction,
+    blockhash,
+    lastValidBlockHeight,
+  };
+}
+
+async function createTokensFixTransaction({
+  publicKey,
+  payer,
+  accounts,
+  connection,
+}: {
+  publicKey: PublicKey;
+  payer: PublicKey;
+  accounts: { pubkey: PublicKey; account: AccountInfo<ParsedAccountData> };
+  connection: Connection;
+}): Promise<{
+  transaction: VersionedTransaction;
+  blockhash: string;
+  lastValidBlockHeight: number;
+}> {
+  // Get the latest blockhash to use in our transaction
+  const { blockhash, lastValidBlockHeight } =
+    await connection.getLatestBlockhash('finalized');
+
+  let senderATA = accounts.pubkey;
+  let mint = new PublicKey(accounts.account.data.parsed.info.mint);
+  const tokenProgramId = accounts.account.owner;
+  let recievingATA = getAssociatedTokenAddressSync(
+    mint,
+    payer,
+    true,
+    tokenProgramId
+  );
+  let amount = parseInt(accounts.account.data.parsed.info.tokenAmount.amount);
+  let decimals = accounts.account.data.parsed.info.tokenAmount.decimals;
+  console.log('sending ' + amount + ' ' + mint);
+
+  let ataInfo = await connection.getAccountInfo(recievingATA);
+  let ataExists = ataInfo && ataInfo.lamports > 0;
+
+  let isPnft = accounts.account.data.parsed.info.state == 'frozen';
+
+  const instructions: TransactionInstruction[] = [];
+
+  if (!ataExists) {
+    instructions.push(
+      createAssociatedTokenAccountInstruction(
+        payer,
+        recievingATA,
+        payer,
+        mint,
+        tokenProgramId
+      )
+    );
+  }
+  instructions.push(
+    createTransferCheckedInstruction(
+      senderATA,
+      mint,
+      recievingATA,
+      publicKey,
+      amount,
+      decimals,
+      [],
+      tokenProgramId
+    )
+  );
 
   if (tokenProgramId.toBase58() === TOKEN_2022_PROGRAM_ID.toBase58()) {
     instructions.push(
@@ -1019,6 +1131,80 @@ export function useWalletTokenRecovery({ address }: { address: PublicKey }) {
 
         transaction = await feePayer.signTransaction!(transaction);
         transaction = await wallet.signTransaction!(transaction);
+        // Send transaction and await for signature
+        signature = await connection.sendTransaction(transaction, {
+          maxRetries: 0,
+        });
+        transactionToast(signature, 'sent');
+
+        // Send transaction and await for signature
+        await resendAndConfirmTransaction({
+          connection,
+          transaction,
+          signature,
+          blockhash,
+          lastValidBlockHeight,
+        });
+
+        console.log(signature);
+        return signature;
+      } catch (error: unknown) {
+        console.log('error', `Transaction failed! ${error}`, signature);
+
+        return;
+      }
+    },
+    onSuccess: (signature) => {
+      if (signature) {
+        transactionToast(signature, 'confirmed');
+      }
+      return Promise.all([
+        client.invalidateQueries({
+          queryKey: [
+            'get-balance',
+            { endpoint: connection.rpcEndpoint, address },
+          ],
+        }),
+        client.invalidateQueries({
+          queryKey: [
+            'get-signatures',
+            { endpoint: connection.rpcEndpoint, address },
+          ],
+        }),
+      ]);
+    },
+    onError: (error) => {
+      toast.error(`Transaction failed! ${error}`);
+    },
+  });
+}
+
+export function useWalletTokenFix({ address }: { address: PublicKey }) {
+  const { connection } = useConnection();
+  const transactionToast = useTransactionToast();
+  const compromised = useCompromisedContext();
+  const client = useQueryClient();
+
+  return useMutation({
+    mutationKey: ['fix-ta', { endpoint: connection.rpcEndpoint, address }],
+    mutationFn: async (input: {
+      destination: PublicKey;
+      accounts: { pubkey: PublicKey; account: AccountInfo<ParsedAccountData> };
+    }) => {
+      let signature: TransactionSignature = '';
+      console.log('fix started');
+      console.log('trying to fix ' + input.accounts.pubkey.toBase58());
+      console.log('sending tokens to ' + input.destination.toBase58());
+      try {
+        let { transaction, blockhash, lastValidBlockHeight } =
+          await createTokensRecoveryTransaction({
+            publicKey: address,
+            payer: compromised.publicKey!,
+            accounts: input.accounts,
+            connection,
+          });
+
+        transaction = await compromised.signTransaction!(transaction);
         // Send transaction and await for signature
         signature = await connection.sendTransaction(transaction, {
           maxRetries: 0,
