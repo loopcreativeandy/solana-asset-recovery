@@ -24,11 +24,8 @@ import {
 import { useConnection } from '@solana/wallet-adapter-react';
 import { LAMPORTS_PER_SOL, PublicKey, SystemProgram } from '@solana/web3.js';
 import { ChangeEvent, useCallback, useEffect, useMemo, useState } from 'react';
-import {
-  DecodedTransaction,
-  SimulateResult,
-  getCreateATA,
-} from '../transactions-data-access';
+import { SimulateResult, getCreateATA } from '../transactions-data-access';
+import { DecodedTransaction } from '@/components/solana/solana-data-access';
 
 export type AddInstructionType =
   | 'create-ata'

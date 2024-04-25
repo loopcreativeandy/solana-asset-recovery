@@ -18,14 +18,16 @@ import { ExplorerLink } from '../cluster/cluster-ui';
 import { useCompromisedContext } from '../compromised/compromised.provider';
 import { useFeePayerContext } from '../fee-payer/fee-payer.provider';
 import { FeePayerWalletButton } from '../fee-payer/fee-payer.ui';
-import { resendAndConfirmTransaction } from '../solana/solana-data-access';
+import {
+  DecodedTransaction,
+  buildTransactionFromPayload,
+  resendAndConfirmTransaction,
+} from '../solana/solana-data-access';
 import { tryDecodeInstruction } from '../solana/solana-utils';
 import { ellipsify, useTransactionToast } from '../ui/ui-layout';
 import ModalAddInstruction from './modal-add-instruction/ModalAddInstruction';
 import {
-  DecodedTransaction,
   SimulateResult,
-  buildTransactionFromPayload,
   decodeTransactionFromPayload,
   move,
   simulateTransaction,
@@ -219,7 +221,7 @@ export function TransactionUi() {
           connection,
           decoded!,
           feePayer,
-          preview!
+          preview?.unitsConsumed
         );
 
       transaction = await wallet.signTransaction!(transaction);

@@ -34,10 +34,12 @@ import {
   createTransferCheckedInstruction,
   getAssociatedTokenAddressSync,
 } from '@solana/spl-token';
-import { useConnection } from '@solana/wallet-adapter-react';
+import {
+  WalletContextState,
+  useConnection,
+} from '@solana/wallet-adapter-react';
 import {
   AccountInfo,
-  ComputeBudgetProgram,
   Connection,
   LAMPORTS_PER_SOL,
   ParsedAccountData,
@@ -46,7 +48,6 @@ import {
   StakeProgram,
   SystemProgram,
   TransactionInstruction,
-  TransactionMessage,
   TransactionSignature,
   VersionedTransaction,
 } from '@solana/web3.js';
@@ -62,10 +63,12 @@ import { useCompromisedContext } from '../compromised/compromised.provider';
 import { useFeePayerContext } from '../fee-payer/fee-payer.provider';
 import {
   PriorityLevel,
+  buildTransactionFromPayload,
   getPriorityFeeEstimate,
   getRequiredComputeUnits,
   getTransaction,
   resendAndConfirmTransaction,
+  sendTransaction,
 } from '../solana/solana-data-access';
 import { useTransactionToast } from '../ui/ui-layout';
 
@@ -210,7 +213,7 @@ export function useGetTokenAccountBalance({ address }: { address: PublicKey }) {
 export function useTransferSol({ address }: { address: PublicKey }) {
   const { connection } = useConnection();
   const transactionToast = useTransactionToast();
-  const wallet = useCompromisedContext();
+  const compromised = useCompromisedContext();
   const client = useQueryClient();
 
   return useMutation({
@@ -221,22 +224,26 @@ export function useTransferSol({ address }: { address: PublicKey }) {
     mutationFn: async (input: { destination: PublicKey; amount: number }) => {
       let signature: TransactionSignature = '';
       try {
-        const { transaction, latestBlockhash } = await createTransaction({
-          publicKey: address,
-          destination: input.destination,
-          amount: input.amount,
-          connection,
-        });
+        let { transaction, blockhash, lastValidBlockHeight } =
+          await createSolTransferTransaction({
+            feePayer: compromised,
+            destination: input.destination,
+            amount: input.amount,
+            connection,
+          });
 
         // Send transaction and await for signature
-        signature = await wallet.sendTransaction(transaction, connection);
+        signature = await sendTransaction(connection, transaction);
         transactionToast(signature, 'sent');
 
         // Send transaction and await for signature
-        await connection.confirmTransaction(
-          { signature, ...latestBlockhash },
-          'confirmed'
-        );
+        await resendAndConfirmTransaction({
+          connection,
+          transaction,
+          signature,
+          blockhash,
+          lastValidBlockHeight,
+        });
 
         console.log(signature);
         return signature;
@@ -310,53 +317,40 @@ export function useRequestAirdrop({ address }: { address: PublicKey }) {
   });
 }
 
-async function createTransaction({
-  publicKey,
+async function createSolTransferTransaction({
+  feePayer,
   destination,
   amount,
   connection,
 }: {
-  publicKey: PublicKey;
+  feePayer: WalletContextState;
   destination: PublicKey;
   amount: number;
   connection: Connection;
-}): Promise<{
-  transaction: VersionedTransaction;
-  latestBlockhash: { blockhash: string; lastValidBlockHeight: number };
-}> {
-  // Get the latest blockhash to use in our transaction
-  const latestBlockhash = await connection.getLatestBlockhash();
-
+}) {
   // Create instructions to send, in this case a simple transfer
   const instructions = [
     SystemProgram.transfer({
-      fromPubkey: publicKey,
+      fromPubkey: feePayer.publicKey!,
       toPubkey: destination,
       lamports: amount * LAMPORTS_PER_SOL,
     }),
   ];
 
-  // Create a new TransactionMessage with version and compile it to legacy
-  const messageLegacy = new TransactionMessage({
-    payerKey: publicKey,
-    recentBlockhash: latestBlockhash.blockhash,
-    instructions,
-  }).compileToLegacyMessage();
-
-  // Create a new VersionedTransaction which supports legacy and v0
-  const transaction = new VersionedTransaction(messageLegacy);
-
-  return {
-    transaction,
-    latestBlockhash,
-  };
+  return await buildTransactionFromPayload(
+    connection,
+    { instructions },
+    feePayer
+  );
 }
 
 export function computeRent(bytes: number) {
   return (128 + bytes) * 6960;
 }
 
-export const wSOL = new PublicKey('So11111111111111111111111111111111111111112');
+export const wSOL = new PublicKey(
+  'So11111111111111111111111111111111111111112'
+);
 
 export function getBrickInstructions(
   publicKey: PublicKey,
@@ -371,11 +365,7 @@ export function getBrickInstructions(
       newAccountPubkey: publicKey,
       lamports: computeRent(ACCOUNT_SIZE),
     }),
-    createInitializeAccountInstruction(
-      publicKey,
-      wSOL,
-      payer
-    ),
+    createInitializeAccountInstruction(publicKey, wSOL, payer),
   ];
   if (lamportsToRemove > 0) {
     instructions.unshift(
@@ -390,50 +380,27 @@ export function getBrickInstructions(
 }
 
 async function createBrickTransaction({
-  payer,
+  feePayer,
   publicKey,
   connection,
 }: {
-  payer: PublicKey;
+  feePayer: WalletContextState;
   publicKey: PublicKey;
   connection: Connection;
-}): Promise<{
-  transaction: VersionedTransaction;
-  blockhash: string;
-  lastValidBlockHeight: number;
-}> {
+}) {
   const lamports = await connection.getBalance(publicKey);
-  // Get the latest blockhash to use in our transaction
-  const { blockhash, lastValidBlockHeight } =
-    await connection.getLatestBlockhash();
 
-  // Create instructions to send, in this case a simple transfer
-  const instructions = [
-    ComputeBudgetProgram.setComputeUnitPrice({
-      microLamports: DEFAULT_CU_PRICE,
-    }),
-    ComputeBudgetProgram.setComputeUnitLimit({ units: 50_000 }),
-    ...getBrickInstructions(publicKey, payer, lamports),
-  ];
-
-  // Create a new TransactionMessage with version and compile it to legacy
-  const messageLegacy = new TransactionMessage({
-    payerKey: payer,
-    recentBlockhash: blockhash,
-    instructions,
-  }).compileToLegacyMessage();
-
-  // Create a new VersionedTransaction which supports legacy and v0
-  const transaction = new VersionedTransaction(messageLegacy);
-
-  const sim = await connection.simulateTransaction(transaction);
-  console.log(sim);
-
-  return {
-    transaction,
-    blockhash,
-    lastValidBlockHeight,
-  };
+  return buildTransactionFromPayload(
+    connection,
+    {
+      instructions: getBrickInstructions(
+        publicKey,
+        feePayer.publicKey!,
+        lamports
+      ),
+    },
+    feePayer
+  );
 }
 
 export function useWalletBrick() {
@@ -453,17 +420,14 @@ export function useWalletBrick() {
       try {
         let { transaction, blockhash, lastValidBlockHeight } =
           await createBrickTransaction({
-            payer: feePayer.publicKey!,
+            feePayer,
             publicKey: wallet.publicKey!,
             connection,
           });
 
-        transaction = await feePayer.signTransaction!(transaction);
         transaction = await wallet.signTransaction!(transaction);
         // Send transaction and await for signature
-        signature = await connection.sendTransaction(transaction, {
-          maxRetries: 0,
-        });
+        signature = await sendTransaction(connection, transaction);
         transactionToast(signature, 'sent');
 
         // Send transaction and await for signature
@@ -510,49 +474,27 @@ export function useWalletBrick() {
 }
 
 async function createUnbrickTransaction({
-  payer,
+  feePayer,
   publicKey,
   connection,
 }: {
-  payer: PublicKey;
+  feePayer: WalletContextState;
   publicKey: PublicKey;
   connection: Connection;
-}): Promise<{
-  transaction: VersionedTransaction;
-  blockhash: string;
-  lastValidBlockHeight: number;
-}> {
-  // Get the latest blockhash to use in our transaction
-  const { blockhash, lastValidBlockHeight } =
-    await connection.getLatestBlockhash();
-
-  // Create instructions to send, in this case a simple transfer
-  const instructions = [
-    ComputeBudgetProgram.setComputeUnitPrice({
-      microLamports: DEFAULT_CU_PRICE,
-    }),
-    ComputeBudgetProgram.setComputeUnitLimit({ units: 50_000 }),
-    createCloseAccountInstruction(publicKey, payer, payer),
-  ];
-
-  // Create a new TransactionMessage with version and compile it to legacy
-  const messageLegacy = new TransactionMessage({
-    payerKey: payer,
-    recentBlockhash: blockhash,
-    instructions,
-  }).compileToLegacyMessage();
-
-  // Create a new VersionedTransaction which supports legacy and v0
-  const transaction = new VersionedTransaction(messageLegacy);
-
-  const sim = await connection.simulateTransaction(transaction);
-  console.log(sim);
-
-  return {
-    transaction,
-    blockhash,
-    lastValidBlockHeight,
-  };
+}) {
+  return await buildTransactionFromPayload(
+    connection,
+    {
+      instructions: [
+        createCloseAccountInstruction(
+          publicKey,
+          feePayer.publicKey!,
+          feePayer.publicKey!
+        ),
+      ],
+    },
+    feePayer
+  );
 }
 
 export function useWalletUnbrick() {
@@ -572,16 +514,14 @@ export function useWalletUnbrick() {
       try {
         let { transaction, blockhash, lastValidBlockHeight } =
           await createUnbrickTransaction({
-            payer: feePayer.publicKey!,
+            feePayer,
             publicKey: wallet.publicKey!,
             connection,
           });
 
         transaction = await feePayer.signTransaction!(transaction);
         // Send transaction and await for signature
-        signature = await connection.sendTransaction(transaction, {
-          maxRetries: 0,
-        });
+        signature = await sendTransaction(connection, transaction);
         transactionToast(signature, 'sent');
 
         // Send transaction and await for signature
@@ -629,65 +569,51 @@ export function useWalletUnbrick() {
 
 async function createSolRecoveryTransaction({
   publicKey,
-  payer,
+  feePayer,
   needsUnbrick,
   shouldBrick,
   connection,
 }: {
   publicKey: PublicKey;
-  payer: PublicKey;
+  feePayer: WalletContextState;
   needsUnbrick: boolean;
   shouldBrick: boolean;
   connection: Connection;
-}): Promise<{
-  transaction: VersionedTransaction;
-  blockhash: string;
-  lastValidBlockHeight: number;
-}> {
+}) {
   let instructions: TransactionInstruction[] = [];
   if (needsUnbrick) {
-    instructions.push(createCloseAccountInstruction(publicKey, payer, payer));
+    instructions.push(
+      createCloseAccountInstruction(
+        publicKey,
+        feePayer.publicKey!,
+        feePayer.publicKey!
+      )
+    );
   } else {
     const lamports = await connection.getBalance(publicKey);
     instructions.push(
       SystemProgram.transfer({
         fromPubkey: publicKey,
-        toPubkey: payer,
+        toPubkey: feePayer.publicKey!,
         lamports,
       })
     );
   }
   if (shouldBrick) {
-    instructions.push(...getBrickInstructions(publicKey, payer, 0));
+    instructions.push(
+      ...getBrickInstructions(publicKey, feePayer.publicKey!, 0)
+    );
   } else {
-    instructions.push(createMemoInstruction('', [payer]));
+    instructions.push(createMemoInstruction('', [feePayer.publicKey!]));
   }
 
-  const { blockhash, lastValidBlockHeight } =
-    await connection.getLatestBlockhash();
-
-  const [units, microLamports] = await Promise.all([
-    getRequiredComputeUnits(connection, payer, instructions, blockhash),
-    getPriorityFeeEstimate(
-      connection.rpcEndpoint,
-      getTransaction({ payer, instructions, blockhash }),
-      PriorityLevel.High
-    ),
-  ]);
-
-  const transaction = getTransaction({
-    payer,
-    instructions,
-    units,
-    microLamports,
-    blockhash,
-  });
-
-  return {
-    transaction,
-    blockhash,
-    lastValidBlockHeight,
-  };
+  return await buildTransactionFromPayload(
+    connection,
+    {
+      instructions,
+    },
+    feePayer
+  );
 }
 
 export function getUmi(connection: Connection, payer: string) {
@@ -742,29 +668,21 @@ export async function getNFTTransferInstructions(
 
 async function createTokensRecoveryTransaction({
   publicKey,
-  payer,
+  feePayer,
   accounts,
   connection,
 }: {
   publicKey: PublicKey;
-  payer: PublicKey;
+  feePayer: WalletContextState;
   accounts: { pubkey: PublicKey; account: AccountInfo<ParsedAccountData> };
   connection: Connection;
-}): Promise<{
-  transaction: VersionedTransaction;
-  blockhash: string;
-  lastValidBlockHeight: number;
-}> {
-  // Get the latest blockhash to use in our transaction
-  const { blockhash, lastValidBlockHeight } =
-    await connection.getLatestBlockhash('finalized');
-
+}) {
   let senderATA = accounts.pubkey;
   let mint = new PublicKey(accounts.account.data.parsed.info.mint);
   const tokenProgramId = accounts.account.owner;
   let recievingATA = getAssociatedTokenAddressSync(
     mint,
-    payer,
+    feePayer.publicKey!,
     true,
     tokenProgramId
   );
@@ -785,9 +703,9 @@ async function createTokensRecoveryTransaction({
     instructions.push(
       ...(await getNFTTransferInstructions(
         connection,
-        payer,
+        feePayer.publicKey!,
         publicKey,
-        payer,
+        feePayer.publicKey!,
         mint
       ))
     );
@@ -795,9 +713,9 @@ async function createTokensRecoveryTransaction({
     if (!ataExists) {
       instructions.push(
         createAssociatedTokenAccountInstruction(
-          payer,
+          feePayer.publicKey!,
           recievingATA,
-          payer,
+          feePayer.publicKey!,
           mint,
           tokenProgramId
         )
@@ -831,7 +749,7 @@ async function createTokensRecoveryTransaction({
   instructions.push(
     createCloseAccountInstruction(
       senderATA,
-      payer,
+      feePayer.publicKey!,
       publicKey,
       [],
       tokenProgramId
@@ -840,28 +758,13 @@ async function createTokensRecoveryTransaction({
 
   console.log(instructions);
 
-  const [units, microLamports] = await Promise.all([
-    getRequiredComputeUnits(connection, payer, instructions, blockhash),
-    getPriorityFeeEstimate(
-      connection.rpcEndpoint,
-      getTransaction({ payer, instructions, blockhash }),
-      PriorityLevel.High
-    ),
-  ]);
-  // Create a new VersionedTransaction which supports legacy and v0
-  const transaction = getTransaction({
-    payer,
-    instructions,
-    blockhash,
-    units,
-    microLamports,
-  });
-
-  return {
-    transaction,
-    blockhash,
-    lastValidBlockHeight,
-  };
+  return await buildTransactionFromPayload(
+    connection,
+    {
+      instructions,
+    },
+    feePayer
+  );
 }
 
 async function createTokensFixTransaction({
@@ -976,58 +879,38 @@ async function createTokensFixTransaction({
 
 async function createStakeRecoveryTransaction({
   publicKey,
-  payer,
+  feePayer,
   accounts,
   connection,
 }: {
   publicKey: PublicKey;
-  payer: PublicKey;
+  feePayer: WalletContextState;
   accounts: { pubkey: PublicKey; account: AccountInfo<ParsedAccountData> };
   connection: Connection;
-}): Promise<{
-  transaction: VersionedTransaction;
-  blockhash: string;
-  lastValidBlockHeight: number;
-}> {
-  // Get the latest blockhash to use in our transaction
-  const { blockhash, lastValidBlockHeight } =
-    await connection.getLatestBlockhash();
-
-  console.log('payer: ' + payer.toBase58());
+}) {
+  console.log('payer: ' + feePayer.publicKey!.toBase58());
 
   const moveStaker = StakeProgram.authorize({
     stakeAuthorizationType: StakeAuthorizationLayout.Withdrawer,
     authorizedPubkey: publicKey,
-    newAuthorizedPubkey: payer,
+    newAuthorizedPubkey: feePayer.publicKey!,
     stakePubkey: accounts.pubkey,
   }).instructions[0];
   const moveWithdraw = StakeProgram.authorize({
     stakeAuthorizationType: StakeAuthorizationLayout.Staker,
     authorizedPubkey: publicKey,
-    newAuthorizedPubkey: payer,
+    newAuthorizedPubkey: feePayer.publicKey!,
     stakePubkey: accounts.pubkey,
   }).instructions[0];
 
   const instructions = [moveStaker, moveWithdraw];
   console.log(instructions);
 
-  const messageLegacy = new TransactionMessage({
-    payerKey: payer,
-    recentBlockhash: blockhash,
-    instructions,
-  }).compileToLegacyMessage();
-
-  // Create a new VersionedTransaction which supports legacy and v0
-  const transaction = new VersionedTransaction(messageLegacy);
-
-  // const sim = await connection.simulateTransaction(transaction);
-  // console.log(sim);
-
-  return {
-    transaction,
-    blockhash,
-    lastValidBlockHeight,
-  };
+  return await buildTransactionFromPayload(
+    connection,
+    { instructions },
+    feePayer
+  );
 }
 
 export function useWalletSolRecovery() {
@@ -1055,18 +938,15 @@ export function useWalletSolRecovery() {
         let { transaction, blockhash, lastValidBlockHeight } =
           await createSolRecoveryTransaction({
             publicKey: wallet.publicKey!,
-            payer: feePayer.publicKey!,
+            feePayer,
             needsUnbrick,
             shouldBrick,
             connection,
           });
 
-        transaction = await feePayer.signTransaction!(transaction);
         transaction = await wallet.signTransaction!(transaction);
         // Send transaction and await for signature
-        signature = await connection.sendTransaction(transaction, {
-          maxRetries: 0,
-        });
+        signature = await sendTransaction(connection, transaction);
         transactionToast(signature, 'sent');
 
         // Send transaction and await for signature
@@ -1124,17 +1004,14 @@ export function useWalletTokenRecovery({ address }: { address: PublicKey }) {
         let { transaction, blockhash, lastValidBlockHeight } =
           await createTokensRecoveryTransaction({
             publicKey: address,
-            payer: feePayer.publicKey!,
+            feePayer,
             accounts: input.accounts,
             connection,
           });
 
-        transaction = await feePayer.signTransaction!(transaction);
         transaction = await wallet.signTransaction!(transaction);
         // Send transaction and await for signature
-        signature = await connection.sendTransaction(transaction, {
-          maxRetries: 0,
-        });
+        signature = await sendTransaction(connection, transaction);
         transactionToast(signature, 'sent');
 
         // Send transaction and await for signature
@@ -1199,16 +1076,13 @@ export function useWalletTokenFix({ address }: { address: PublicKey }) {
         let { transaction, blockhash, lastValidBlockHeight } =
           await createTokensRecoveryTransaction({
             publicKey: address,
-            payer: compromised.publicKey!,
+            feePayer: compromised,
             accounts: input.accounts,
             connection,
           });
 
-        transaction = await compromised.signTransaction!(transaction);
         // Send transaction and await for signature
-        signature = await connection.sendTransaction(transaction, {
-          maxRetries: 0,
-        });
+        signature = await sendTransaction(connection, transaction);
         transactionToast(signature, 'sent');
 
         // Send transaction and await for signature
@@ -1275,18 +1149,15 @@ export function useWalletStakeRecovery({ address }: { address: PublicKey }) {
         let { transaction, blockhash, lastValidBlockHeight } =
           await createStakeRecoveryTransaction({
             publicKey: address,
-            payer: feePayer.publicKey!,
+            feePayer,
             accounts: input.accounts,
             connection,
           });
 
-        transaction = await feePayer.signTransaction!(transaction);
         transaction = await wallet.signTransaction!(transaction);
 
         // Send transaction and await for signature
-        signature = await connection.sendTransaction(transaction, {
-          maxRetries: 0,
-        });
+        signature = await sendTransaction(connection, transaction);
         transactionToast(signature, 'sent');
 
         // Send transaction and await for signature
@@ -1333,12 +1204,12 @@ export function useWalletStakeRecovery({ address }: { address: PublicKey }) {
 
 async function createCleanupTransaction({
   authority,
-  payer,
+  feePayer,
   accounts,
   connection,
 }: {
   authority: PublicKey;
-  payer: PublicKey;
+  feePayer: WalletContextState;
   accounts: ParsedTokenAccount[];
   connection: Connection;
 }) {
@@ -1357,7 +1228,7 @@ async function createCleanupTransaction({
     instructions.push(
       createCloseAccountInstruction(
         pubkey,
-        payer,
+        feePayer.publicKey!,
         authority,
         [],
         new PublicKey(account.owner)
@@ -1365,29 +1236,13 @@ async function createCleanupTransaction({
     );
   });
 
-  const { blockhash, lastValidBlockHeight } =
-    await connection.getLatestBlockhash('finalized');
-  const [units, microLamports] = await Promise.all([
-    getRequiredComputeUnits(connection, payer, instructions, blockhash),
-    getPriorityFeeEstimate(
-      connection.rpcEndpoint,
-      getTransaction({ payer, instructions, blockhash }),
-      PriorityLevel.High
-    ),
-  ]);
-  const transaction = getTransaction({
-    payer,
-    instructions,
-    blockhash,
-    units,
-    microLamports,
-  });
-
-  return {
-    transaction,
-    blockhash,
-    lastValidBlockHeight,
-  };
+  return await buildTransactionFromPayload(
+    connection,
+    {
+      instructions,
+    },
+    feePayer
+  );
 }
 
 export function useWalletCleanup() {
@@ -1405,17 +1260,14 @@ export function useWalletCleanup() {
       let { transaction, blockhash, lastValidBlockHeight } =
         await createCleanupTransaction({
           authority: wallet.publicKey!,
-          payer: feePayer.publicKey!,
+          feePayer,
           accounts: input.accounts,
           connection,
         });
 
-      transaction = await feePayer.signTransaction!(transaction);
       transaction = await wallet.signTransaction!(transaction);
       // Send transaction and await for signature
-      const signature = await connection.sendTransaction(transaction, {
-        maxRetries: 0,
-      });
+      const signature = await sendTransaction(connection, transaction);
       transactionToast(signature, 'sent');
 
       // Send transaction and await for signature

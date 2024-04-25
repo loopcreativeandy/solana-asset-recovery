@@ -11,46 +11,26 @@ import {
   RawAccount,
   RawMint,
   TOKEN_PROGRAM_ID,
-  TokenInstruction,
   createAssociatedTokenAccountInstruction,
-  createSetAuthorityInstruction,
-  decodeInstruction,
-  decodeSetAuthorityInstruction,
   getAssociatedTokenAddressSync,
 } from '@solana/spl-token';
-import { WalletContextState } from '@solana/wallet-adapter-react';
 import {
   AccountInfo,
   AddressLookupTableAccount,
-  ComputeBudgetInstruction,
   ComputeBudgetProgram,
   Connection,
   Keypair,
   PublicKey,
-  SignaturePubkeyPair,
   SimulatedTransactionAccountInfo,
   SimulatedTransactionResponse,
   SystemProgram,
   Transaction,
-  TransactionInstruction,
   TransactionMessage,
   VersionedMessage,
   VersionedTransaction,
 } from '@solana/web3.js';
 import bs58 from 'bs58';
-import {
-  PriorityLevel,
-  getPriorityFeeEstimate,
-} from '../solana/solana-data-access';
-
-export type DecodedTransaction = {
-  version: 'legacy' | 0;
-  instructions: TransactionInstruction[];
-  blockhash: string;
-  signatures: SignaturePubkeyPair[];
-  addressLookupTableAccounts?: AddressLookupTableAccount[];
-  needsExtraSigner: boolean;
-};
+import { DecodedTransaction } from '../solana/solana-data-access';
 
 function decodeLength(bytes: number[]) {
   let len = 0;
@@ -381,94 +361,6 @@ export async function simulateTransaction(
       };
     }),
   };
-}
-
-function sanitize(decodedTransaction: DecodedTransaction): DecodedTransaction {
-  const instructions = decodedTransaction.instructions;
-  return {
-    ...decodedTransaction,
-    instructions,
-  };
-}
-
-export async function buildTransactionFromPayload(
-  connection: Connection,
-  decodedTransaction: DecodedTransaction,
-  feepayer: WalletContextState,
-  preview: SimulateResult
-) {
-  decodedTransaction = sanitize(decodedTransaction);
-  const { blockhash, lastValidBlockHeight } =
-    await connection.getLatestBlockhash();
-  let instructions = decodedTransaction.instructions;
-
-  if (
-    !instructions.some(
-      (i) =>
-        i.programId.toBase58() === ComputeBudgetProgram.programId.toBase58() &&
-        ComputeBudgetInstruction.decodeInstructionType(i) ===
-          'SetComputeUnitLimit'
-    )
-  ) {
-    instructions = [
-      ComputeBudgetProgram.setComputeUnitLimit({
-        units: Math.floor(preview.unitsConsumed || 500_000),
-      }),
-      ...instructions,
-    ];
-  }
-  if (
-    !instructions.some(
-      (i) =>
-        i.programId.toBase58() === ComputeBudgetProgram.programId.toBase58() &&
-        ComputeBudgetInstruction.decodeInstructionType(i) ===
-          'SetComputeUnitPrice'
-    )
-  ) {
-    const microLamports = await getPriorityFeeEstimate(
-      connection.rpcEndpoint,
-      new VersionedTransaction(
-        new TransactionMessage({
-          payerKey: feepayer.publicKey!,
-          recentBlockhash: blockhash,
-          instructions: decodedTransaction.instructions,
-        }).compileToV0Message(decodedTransaction.addressLookupTableAccounts)
-      ),
-      PriorityLevel.High
-    );
-    instructions = [
-      ComputeBudgetProgram.setComputeUnitPrice({
-        microLamports: Math.floor(microLamports),
-      }),
-      ...instructions,
-    ];
-  }
-  if (decodedTransaction.version === 0) {
-    // change feepayer
-    const message = new TransactionMessage({
-      instructions: decodedTransaction.instructions,
-      payerKey: feepayer.publicKey!,
-      recentBlockhash: blockhash,
-    });
-
-    let newVersionedTx = await feepayer.signTransaction!(
-      new VersionedTransaction(
-        message.compileToV0Message(
-          decodedTransaction.addressLookupTableAccounts
-        )
-      )
-    );
-
-    return { transaction: newVersionedTx, blockhash, lastValidBlockHeight };
-  } else {
-    console.log('building legacy transaction');
-    const tx = new Transaction();
-    tx.add(...decodedTransaction.instructions);
-    tx.feePayer = feepayer.publicKey!;
-    tx.recentBlockhash = blockhash;
-    const transaction = await feepayer.signTransaction!(tx);
-    return { transaction, blockhash, lastValidBlockHeight };
-  }
 }
 
 export async function withdrawAll(
