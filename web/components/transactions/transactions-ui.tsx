@@ -7,7 +7,13 @@ import {
   PublicKey,
   TransactionInstruction,
 } from '@solana/web3.js';
-import { ChangeEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import React, {
+  ChangeEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from 'react';
 import { ExplorerLink } from '../cluster/cluster-ui';
 import { useCompromisedContext } from '../compromised/compromised.provider';
 import { useFeePayerContext } from '../fee-payer/fee-payer.provider';
@@ -61,26 +67,35 @@ function Instruction({ ix, i, transaction, setTransaction }: InstructionProps) {
       }),
     [transaction]
   );
-  const onChangeAccount = (sx: number) => (e: ChangeEvent<HTMLInputElement>) =>
-    setTransaction({
-      ...transaction,
-      instructions: transaction.instructions.map((d, dx) =>
-        dx === ix
-          ? {
-              ...d,
-              keys: d.keys.map((k, kx) =>
-                kx === sx
-                  ? ({
-                      pubkey: new PublicKey(e.target.value),
-                      isSigner: k.isSigner,
-                      isWritable: k.isWritable,
-                    } as AccountMeta)
-                  : k
-              ),
-            }
-          : d
-      ),
-    });
+  const onChangeAccount =
+    (sx: number, field: keyof AccountMeta) =>
+    (e: ChangeEvent<HTMLInputElement>) =>
+      setTransaction({
+        ...transaction,
+        instructions: transaction.instructions.map((d, dx) =>
+          dx === ix
+            ? {
+                ...d,
+                keys: d.keys.map((k, kx) =>
+                  kx === sx
+                    ? ({
+                        pubkey:
+                          field === 'pubkey'
+                            ? new PublicKey(e.target.value)
+                            : k.pubkey,
+                        isSigner:
+                          field === 'isSigner' ? e.target.checked : k.isSigner,
+                        isWritable:
+                          field === 'isWritable'
+                            ? e.target.checked
+                            : k.isWritable,
+                      } as AccountMeta)
+                    : k
+                ),
+              }
+            : d
+        ),
+      });
   const parsed = useMemo(() => tryDecodeInstruction(i), [i]);
 
   return (
@@ -116,18 +131,34 @@ function Instruction({ ix, i, transaction, setTransaction }: InstructionProps) {
       <div>
         <b>Accounts: </b>
         {i.keys.length === 0 && <i>No accounts required</i>}
-        {i.keys.map((s, sx) => (
-          <div key={sx} className="flex gap-2">
-            <b>#{sx}:</b>
-            <input
-              className="border flex-1"
-              value={s.pubkey.toBase58()}
-              onChange={onChangeAccount(sx)}
-            />
-            {s.isWritable && <span>Writable</span>}
-            {s.isSigner && <b>Signer</b>}
+        {i.keys.length > 0 && (
+          <div className="grid grid-cols-[auto_1fr_auto_auto] gap-2">
+            <b>#</b>
+            <b>Pubkey</b>
+            <b>Signer</b>
+            <b>Writable</b>
+            {i.keys.map((s, sx) => (
+              <React.Fragment key={sx}>
+                <span>{sx}</span>
+                <input
+                  className="border flex-1"
+                  value={s.pubkey.toBase58()}
+                  onChange={onChangeAccount(sx, 'pubkey')}
+                />
+                <input
+                  type="checkbox"
+                  checked={s.isSigner}
+                  onChange={onChangeAccount(sx, 'isSigner')}
+                />
+                <input
+                  type="checkbox"
+                  checked={s.isWritable}
+                  onChange={onChangeAccount(sx, 'isWritable')}
+                />
+              </React.Fragment>
+            ))}
           </div>
-        ))}
+        )}
       </div>
       <div className="text-wrap break-all max-w-40 max-h-20 overflow-auto">
         <b>Data:</b>
