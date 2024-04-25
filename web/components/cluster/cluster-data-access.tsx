@@ -99,6 +99,18 @@ export function ClusterProvider({ children }: { children: ReactNode }) {
   const setCluster = useSetAtom(clusterAtom);
   const setClusters = useSetAtom(clustersAtom);
 
+  if (
+    cluster.active &&
+    cluster.name === 'mainnet' &&
+    cluster.endpoint !==
+      defaultClusters.find((d) => d.name === 'mainnet')!.endpoint
+  ) {
+    setCluster({
+      ...cluster,
+      endpoint: defaultClusters.find((d) => d.name === 'mainnet')!.endpoint,
+    });
+  }
+
   const value: ClusterProviderContext = {
     cluster,
     clusters: clusters.sort((a, b) => (a.name > b.name ? 1 : -1)),
