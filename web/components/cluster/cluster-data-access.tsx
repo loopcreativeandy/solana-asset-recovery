@@ -40,7 +40,7 @@ export const defaultClusters: Cluster[] = [
     name: 'mainnet',
     endpoint: process.env.NEXT_PUBLIC_RPC_URL
       ? process.env.NEXT_PUBLIC_RPC_URL
-      : 'https://mainnet.helius-rpc.com/?api-key=e78cc375-92b4-42d9-a00f-d42c497da094',
+      : 'https://solandy-solanam-368e.mainnet.rpcpool.com/',
     network: ClusterNetwork.Mainnet,
   },
   {
