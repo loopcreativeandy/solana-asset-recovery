@@ -466,12 +466,14 @@ export function AccountNFTs({ address }: { address: PublicKey }) {
                       disabled={mutation.isPending}
                       onClick={() => {
                         handleRecover({
-                          pubkey: new PublicKey(
-                            (n as any).token_info.associated_token_address
+                          pubkey: getAssociatedTokenAddressSync(
+                            new PublicKey(n.id),
+                            address,
+                            true
                           ),
                           account: {
                             data: {
-                              program: (n as any).token_info.token_program,
+                              program: TOKEN_PROGRAM_ID.toBase58(),
                               space: 0,
                               parsed: {
                                 info: {
