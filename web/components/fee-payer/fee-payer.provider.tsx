@@ -1,14 +1,24 @@
 'use client';
-import { Component, ReactNode, useEffect, useMemo, useState } from 'react';
+import {
+  ChangeEvent,
+  Component,
+  ReactNode,
+  useEffect,
+  useMemo,
+  useState,
+} from 'react';
 import { SolanaProvider, WalletButton } from '../solana/solana-provider';
 
+import { isPublicKey } from '@metaplex-foundation/umi';
 import { WalletContextState, useWallet } from '@solana/wallet-adapter-react';
+import { PublicKey } from '@solana/web3.js';
 import { createContext, useContext } from 'react';
 import {
   HtmlPortalNode,
   InPortal,
   createHtmlPortalNode,
 } from 'react-reverse-portal';
+import { IS_DEV } from '../constants';
 
 const FeePayerContext = createContext<WalletContextState>(
   {} as WalletContextState
@@ -16,17 +26,25 @@ const FeePayerContext = createContext<WalletContextState>(
 
 export const useFeePayerContext = () => useContext(FeePayerContext);
 
-function useFeePayer(): WalletContextState {
+function useFeePayer(address: string): WalletContextState {
   const wallet = useWallet();
+  const mockWallet = useMemo<WalletContextState | undefined>(() => {
+    if (isPublicKey(address)) {
+      return {
+        publicKey: new PublicKey(address),
+      } as WalletContextState;
+    }
+  }, [address]);
 
-  return wallet;
+  return mockWallet || wallet;
 }
 
 const FeePayerUIContext = createContext<HtmlPortalNode<Component> | null>(null);
 export const useFeePayerUIContext = () => useContext(FeePayerUIContext);
 
 export function FeePayerStore({ children }: { children: React.ReactNode }) {
-  const context = useFeePayer();
+  const [address, setAddress] = useState('');
+  const context = useFeePayer(address);
   const [isMounted, setIsMounted] = useState(false);
   useEffect(() => {
     setIsMounted(true);
@@ -41,7 +59,21 @@ export function FeePayerStore({ children }: { children: React.ReactNode }) {
       {portalNode ? (
         <FeePayerUIContext.Provider value={portalNode}>
           <InPortal node={portalNode}>
-            <WalletButton />
+            <fieldset className="flex items-center gap-2">
+              <WalletButton />
+              {IS_DEV && (
+                <>
+                  <label>OR</label>
+                  <input
+                    value={address}
+                    onChange={(e: ChangeEvent<HTMLInputElement>) =>
+                      setAddress(e.target.value)
+                    }
+                    className="border"
+                  />
+                </>
+              )}
+            </fieldset>
           </InPortal>
           {children}
         </FeePayerUIContext.Provider>

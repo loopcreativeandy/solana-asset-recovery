@@ -4,8 +4,9 @@ import { WalletAdapterNetwork } from '@solana/wallet-adapter-base';
 import { clusterApiUrl, Connection } from '@solana/web3.js';
 import { atom, useAtomValue, useSetAtom } from 'jotai';
 import { atomWithStorage } from 'jotai/utils';
-import { createContext, ReactNode, useContext } from 'react';
+import { createContext, ReactNode, useContext, useEffect } from 'react';
 import toast from 'react-hot-toast';
+import { IS_DEV } from '../constants';
 
 export interface Cluster {
   name: string;
@@ -35,14 +36,15 @@ export function toWalletAdapterNetwork(
   }
 }
 
+const DEFAULT_CLUSTER: Cluster = {
+  name: 'mainnet',
+  endpoint: process.env.NEXT_PUBLIC_RPC_URL
+    ? process.env.NEXT_PUBLIC_RPC_URL
+    : 'https://solandy-solanam-368e.mainnet.rpcpool.com/',
+  network: ClusterNetwork.Mainnet,
+};
 export const defaultClusters: Cluster[] = [
-  {
-    name: 'mainnet',
-    endpoint: process.env.NEXT_PUBLIC_RPC_URL
-      ? process.env.NEXT_PUBLIC_RPC_URL
-      : 'https://solandy-solanam-368e.mainnet.rpcpool.com/',
-    network: ClusterNetwork.Mainnet,
-  },
+  DEFAULT_CLUSTER,
   {
     name: 'devnet',
     endpoint: clusterApiUrl('devnet'),
@@ -98,6 +100,11 @@ export function ClusterProvider({ children }: { children: ReactNode }) {
   const clusters = useAtomValue(activeClustersAtom);
   const setCluster = useSetAtom(clusterAtom);
   const setClusters = useSetAtom(clustersAtom);
+  useEffect(() => {
+    if (!IS_DEV) {
+      setCluster(DEFAULT_CLUSTER);
+    }
+  }, []);
 
   const value: ClusterProviderContext = {
     cluster,

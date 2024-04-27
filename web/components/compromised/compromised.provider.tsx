@@ -9,15 +9,16 @@ import {
 } from 'react';
 import { SolanaProvider, WalletButton } from '../solana/solana-provider';
 
+import { isPublicKey } from '@metaplex-foundation/umi';
 import { WalletContextState, useWallet } from '@solana/wallet-adapter-react';
+import { PublicKey } from '@solana/web3.js';
 import { createContext, useContext } from 'react';
 import {
   HtmlPortalNode,
   InPortal,
   createHtmlPortalNode,
 } from 'react-reverse-portal';
-import { isPublicKey } from '@metaplex-foundation/umi';
-import { PublicKey } from '@solana/web3.js';
+import { IS_DEV } from '../constants';
 
 const CompromisedContext = createContext<WalletContextState>(
   {} as WalletContextState
@@ -43,7 +44,6 @@ const CompromisedUIContext = createContext<HtmlPortalNode<Component> | null>(
 );
 export const useCompromisedUIContext = () => useContext(CompromisedUIContext);
 
-const IS_DEV = process.env.NEXT_PUBLIC_DEV === 'true';
 export function CompromisedStore({ children }: { children: React.ReactNode }) {
   const [compromisedAddress, setCompromisedAddress] = useState('');
   const context = useCompromised(compromisedAddress);
@@ -61,7 +61,7 @@ export function CompromisedStore({ children }: { children: React.ReactNode }) {
       {portalNode ? (
         <CompromisedUIContext.Provider value={portalNode}>
           <InPortal node={portalNode}>
-            <fieldset className="flex flex-col items-center gap-2">
+            <fieldset className="flex items-center gap-2">
               <WalletButton />
               {IS_DEV && (
                 <>
