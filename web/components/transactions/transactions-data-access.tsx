@@ -23,6 +23,8 @@ import {
   PublicKey,
   SimulatedTransactionAccountInfo,
   SimulatedTransactionResponse,
+  StakeAuthorizationLayout,
+  StakeProgram,
   SystemProgram,
   Transaction,
   TransactionMessage,

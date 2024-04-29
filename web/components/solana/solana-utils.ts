@@ -6,12 +6,15 @@ import {
 import {
   AccountMeta,
   AllocateParams,
+  AuthorizeStakeParams,
   ComputeBudgetInstruction,
   ComputeBudgetProgram,
   CreateAccountParams,
   PublicKey,
   SetComputeUnitLimitParams,
   SetComputeUnitPriceParams,
+  StakeInstruction,
+  StakeProgram,
   SystemInstruction,
   SystemProgram,
   TransactionInstruction,
@@ -24,6 +27,7 @@ import {
 
 export type DecodedInstruction =
   | DecodedSystemInstruction
+  | DecodedStakeInstruction
   | DecodedComputeBudgetInstruction
   | DecodedTokenInstruction
   | DecodedAssociatedTokenInstruction;
@@ -54,6 +58,24 @@ function decodeSystemInstruction(
       return {
         type,
         ...SystemInstruction.decodeTransfer(instruction),
+      };
+  }
+}
+
+export type DecodedStakeInstruction =
+  | undefined
+  | ({
+      type: 'Authorize';
+    } & AuthorizeStakeParams);
+function decodeStakeInstruction(
+  instruction: TransactionInstruction
+): DecodedStakeInstruction {
+  const type = StakeInstruction.decodeInstructionType(instruction);
+  switch (type) {
+    case 'Authorize':
+      return {
+        type,
+        ...StakeInstruction.decodeAuthorize(instruction),
       };
   }
 }
@@ -124,6 +146,8 @@ export function tryDecodeInstruction(
   switch (instruction.programId.toBase58()) {
     case SystemProgram.programId.toBase58():
       return decodeSystemInstruction(instruction);
+    case StakeProgram.programId.toBase58():
+      return decodeStakeInstruction(instruction);
     case ComputeBudgetProgram.programId.toBase58():
       return decodeComputeBudgetInstruction(instruction);
     case TOKEN_PROGRAM_ID.toBase58():
