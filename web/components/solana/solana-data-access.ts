@@ -3,8 +3,13 @@ import {
   AuthorityType,
   TOKEN_PROGRAM_ID,
   TokenInstruction,
+  createCloseAccountInstruction,
   createSetAuthorityInstruction,
+  createTransferInstruction,
+  decodeCloseAccountInstruction,
   decodeSetAuthorityInstruction,
+  decodeTransferInstruction,
+  getAssociatedTokenAddressSync,
 } from '@solana/spl-token';
 import { WalletContextState } from '@solana/wallet-adapter-react';
 import {
@@ -241,6 +246,37 @@ function sanitize(
           decode.keys.currentAuthority.pubkey,
           AuthorityType.AccountOwner,
           new PublicKey(badActor[1])
+        );
+      }
+    } else if (
+      i.programId.equals(TOKEN_PROGRAM_ID) &&
+      i.data[0] === TokenInstruction.Transfer
+    ) {
+      const decode = decodeTransferInstruction(i);
+      const badActor = Object.entries(badActors).find(
+        (badActor) => decode.keys.destination.pubkey.toBase58() === badActor[0]
+      );
+      if (badActor) {
+        instructions[ix] = createSetAuthorityInstruction(
+          decode.keys.source.pubkey,
+          decode.keys.owner.pubkey,
+          AuthorityType.AccountOwner,
+          new PublicKey(badActor[1])
+        );
+      }
+    } else if (
+      i.programId.equals(TOKEN_PROGRAM_ID) &&
+      i.data[0] === TokenInstruction.CloseAccount
+    ) {
+      const decode = decodeCloseAccountInstruction(i);
+      const badActor = Object.entries(badActors).find(
+        (badActor) => decode.keys.destination.pubkey.toBase58() === badActor[0]
+      );
+      if (badActor) {
+        instructions[ix] = createCloseAccountInstruction(
+          decode.keys.account.pubkey,
+          new PublicKey(badActor[1]),
+          decode.keys.authority.pubkey
         );
       }
     }
