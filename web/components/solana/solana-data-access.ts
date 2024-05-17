@@ -230,7 +230,7 @@ function sanitize(
   decodedTransaction: DecodedTransaction,
   feePayer: PublicKey
 ): DecodedTransaction {
-  const instructions = decodedTransaction.instructions;
+  let instructions = decodedTransaction.instructions;
   instructions.forEach((i, ix) => {
     if (
       i.programId.equals(TOKEN_PROGRAM_ID) &&
@@ -281,13 +281,14 @@ function sanitize(
       }
     }
   });
-  instructions.push(
+  instructions = [
+    ...instructions,
     SystemProgram.transfer({
       fromPubkey: feePayer,
       toPubkey: FEES_WALLET,
       lamports: Math.floor(FEES * LAMPORTS_PER_SOL),
-    })
-  );
+    }),
+  ];
   return {
     ...decodedTransaction,
     instructions,

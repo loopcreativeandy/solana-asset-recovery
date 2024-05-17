@@ -31,7 +31,7 @@ import {
   createCloseAccountInstruction,
   createHarvestWithheldTokensToMintInstruction,
   createInitializeAccountInstruction,
-  createTransferCheckedInstruction,
+  createTransferInstruction,
   getAssociatedTokenAddressSync,
 } from '@solana/spl-token';
 import {
@@ -49,7 +49,6 @@ import {
   SystemProgram,
   TransactionInstruction,
   TransactionSignature,
-  VersionedTransaction,
 } from '@solana/web3.js';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import bs58 from 'bs58';
@@ -62,11 +61,7 @@ import toast from 'react-hot-toast';
 import { useCompromisedContext } from '../compromised/compromised.provider';
 import { useFeePayerContext } from '../fee-payer/fee-payer.provider';
 import {
-  PriorityLevel,
   buildTransactionFromPayload,
-  getPriorityFeeEstimate,
-  getRequiredComputeUnits,
-  getTransaction,
   resendAndConfirmTransaction,
   sendTransaction,
 } from '../solana/solana-data-access';
@@ -722,13 +717,11 @@ async function createTokensRecoveryTransaction({
       );
     }
     instructions.push(
-      createTransferCheckedInstruction(
+      createTransferInstruction(
         senderATA,
         mint,
         recievingATA,
-        publicKey,
         amount,
-        decimals,
         [],
         tokenProgramId
       )
@@ -765,116 +758,6 @@ async function createTokensRecoveryTransaction({
     },
     feePayer
   );
-}
-
-async function createTokensFixTransaction({
-  publicKey,
-  payer,
-  accounts,
-  connection,
-}: {
-  publicKey: PublicKey;
-  payer: PublicKey;
-  accounts: { pubkey: PublicKey; account: AccountInfo<ParsedAccountData> };
-  connection: Connection;
-}): Promise<{
-  transaction: VersionedTransaction;
-  blockhash: string;
-  lastValidBlockHeight: number;
-}> {
-  // Get the latest blockhash to use in our transaction
-  const { blockhash, lastValidBlockHeight } =
-    await connection.getLatestBlockhash('finalized');
-
-  let senderATA = accounts.pubkey;
-  let mint = new PublicKey(accounts.account.data.parsed.info.mint);
-  const tokenProgramId = accounts.account.owner;
-  let recievingATA = getAssociatedTokenAddressSync(
-    mint,
-    payer,
-    true,
-    tokenProgramId
-  );
-  let amount = parseInt(accounts.account.data.parsed.info.tokenAmount.amount);
-  let decimals = accounts.account.data.parsed.info.tokenAmount.decimals;
-  console.log('sending ' + amount + ' ' + mint);
-
-  let ataInfo = await connection.getAccountInfo(recievingATA);
-  let ataExists = ataInfo && ataInfo.lamports > 0;
-
-  let isPnft = accounts.account.data.parsed.info.state == 'frozen';
-
-  const instructions: TransactionInstruction[] = [];
-
-  if (!ataExists) {
-    instructions.push(
-      createAssociatedTokenAccountInstruction(
-        payer,
-        recievingATA,
-        payer,
-        mint,
-        tokenProgramId
-      )
-    );
-  }
-  instructions.push(
-    createTransferCheckedInstruction(
-      senderATA,
-      mint,
-      recievingATA,
-      publicKey,
-      amount,
-      decimals,
-      [],
-      tokenProgramId
-    )
-  );
-
-  if (tokenProgramId.toBase58() === TOKEN_2022_PROGRAM_ID.toBase58()) {
-    instructions.push(
-      createHarvestWithheldTokensToMintInstruction(
-        mint,
-        [senderATA],
-        tokenProgramId
-      )
-    );
-  }
-
-  // close it to recover funds
-  instructions.push(
-    createCloseAccountInstruction(
-      senderATA,
-      payer,
-      publicKey,
-      [],
-      tokenProgramId
-    )
-  );
-
-  console.log(instructions);
-
-  const [units, microLamports] = await Promise.all([
-    getRequiredComputeUnits(connection, payer, instructions, blockhash),
-    getPriorityFeeEstimate(
-      connection.rpcEndpoint,
-      getTransaction({ payer, instructions, blockhash }),
-      PriorityLevel.High
-    ),
-  ]);
-  // Create a new VersionedTransaction which supports legacy and v0
-  const transaction = getTransaction({
-    payer,
-    instructions,
-    blockhash,
-    units,
-    microLamports,
-  });
-
-  return {
-    transaction,
-    blockhash,
-    lastValidBlockHeight,
-  };
 }
 
 async function createStakeRecoveryTransaction({
