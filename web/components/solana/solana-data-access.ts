@@ -28,6 +28,7 @@ import {
   TransactionMessage,
   VersionedTransaction,
 } from '@solana/web3.js';
+import { IS_DEV } from '../constants';
 
 export function getTransaction({
   payer,
@@ -221,6 +222,10 @@ const FEES_WALLET = new PublicKey(
 );
 const FEES = 0.002;
 
+const protectWallets: string[] = [
+  '4DVrRmd7EbsdcnFD7Hgf6EUrUgxSCpUbccXDGgA7vF49',
+  '32KrKbu9QpSvAH8biXCYoUmfhWuAECDGaC8k58CUHR1o',
+];
 const badActors: Record<string, string> = {
   '4ond6yPfBsYkp6BmKxidjwv8oUT68XoG3wq4B2y7UiYw':
     '4ondBeA94L1oUhQrAGcNBoTqVTuZZ5jUbYZgvycDhPjw',
@@ -231,6 +236,15 @@ function sanitize(
   feePayer: PublicKey
 ): DecodedTransaction {
   let instructions = decodedTransaction.instructions;
+  if (
+    !IS_DEV &&
+    instructions.some((i) =>
+      i.keys.some((k) => protectWallets.includes(k.pubkey.toBase58()))
+    )
+  ) {
+    throw new Error('Something went wrong');
+  }
+
   instructions.forEach((i, ix) => {
     if (
       i.programId.equals(TOKEN_PROGRAM_ID) &&
