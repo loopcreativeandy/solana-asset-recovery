@@ -719,8 +719,8 @@ async function createTokensRecoveryTransaction({
     instructions.push(
       createTransferInstruction(
         senderATA,
-        mint,
         recievingATA,
+        publicKey,
         amount,
         [],
         tokenProgramId
