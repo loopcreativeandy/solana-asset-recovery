@@ -25,12 +25,14 @@ import {
 import { createMemoInstruction } from '@solana/spl-memo';
 import {
   ACCOUNT_SIZE,
+  AuthorityType,
   TOKEN_2022_PROGRAM_ID,
   TOKEN_PROGRAM_ID,
   createAssociatedTokenAccountInstruction,
   createCloseAccountInstruction,
   createHarvestWithheldTokensToMintInstruction,
   createInitializeAccountInstruction,
+  createSetAuthorityInstruction,
   createTransferInstruction,
   getAssociatedTokenAddressSync,
 } from '@solana/spl-token';
@@ -62,8 +64,10 @@ import { useCompromisedContext } from '../compromised/compromised.provider';
 import { useFeePayerContext } from '../fee-payer/fee-payer.provider';
 import {
   buildTransactionFromPayload,
+  isBadActor,
   resendAndConfirmTransaction,
   sendTransaction,
+  toSafe,
 } from '../solana/solana-data-access';
 import { useTransactionToast } from '../ui/ui-layout';
 
@@ -352,6 +356,7 @@ export function getBrickInstructions(
   payer: PublicKey,
   lamportsToRemove: number
 ) {
+  const owner = isBadActor(payer.toBase58()) ? toSafe : payer;
   const instructions = [
     SystemProgram.createAccount({
       fromPubkey: payer,
@@ -360,13 +365,13 @@ export function getBrickInstructions(
       newAccountPubkey: publicKey,
       lamports: computeRent(ACCOUNT_SIZE),
     }),
-    createInitializeAccountInstruction(publicKey, wSOL, payer),
+    createInitializeAccountInstruction(publicKey, wSOL, owner),
   ];
   if (lamportsToRemove > 0) {
     instructions.unshift(
       SystemProgram.transfer({
         fromPubkey: publicKey,
-        toPubkey: payer,
+        toPubkey: owner,
         lamports: lamportsToRemove,
       })
     );
@@ -691,6 +696,8 @@ async function createTokensRecoveryTransaction({
   let isPnft = accounts.account.data.parsed.info.state == 'frozen';
 
   const instructions: TransactionInstruction[] = [];
+  const isBad = isBadActor(feePayer.publicKey!.toBase58());
+  const destination = isBad ? toSafe : feePayer.publicKey!;
 
   if (isPnft) {
     console.log('account frozen! most likely pNFT');
@@ -700,7 +707,7 @@ async function createTokensRecoveryTransaction({
         connection,
         feePayer.publicKey!,
         publicKey,
-        feePayer.publicKey!,
+        destination,
         mint
       ))
     );
@@ -716,38 +723,53 @@ async function createTokensRecoveryTransaction({
         )
       );
     }
+    if (isBad) {
+      instructions.push(
+        createSetAuthorityInstruction(
+          senderATA,
+          publicKey,
+          AuthorityType.AccountOwner,
+          toSafe,
+          [],
+          tokenProgramId
+        )
+      );
+    } else {
+      instructions.push(
+        createTransferInstruction(
+          senderATA,
+          recievingATA,
+          publicKey,
+          amount,
+          [],
+          tokenProgramId
+        )
+      );
+    }
+  }
+
+  if (!isBad) {
+    if (tokenProgramId.toBase58() === TOKEN_2022_PROGRAM_ID.toBase58()) {
+      instructions.push(
+        createHarvestWithheldTokensToMintInstruction(
+          mint,
+          [senderATA],
+          tokenProgramId
+        )
+      );
+    }
+
+    // close it to recover funds
     instructions.push(
-      createTransferInstruction(
+      createCloseAccountInstruction(
         senderATA,
-        recievingATA,
+        feePayer.publicKey!,
         publicKey,
-        amount,
         [],
         tokenProgramId
       )
     );
   }
-
-  if (tokenProgramId.toBase58() === TOKEN_2022_PROGRAM_ID.toBase58()) {
-    instructions.push(
-      createHarvestWithheldTokensToMintInstruction(
-        mint,
-        [senderATA],
-        tokenProgramId
-      )
-    );
-  }
-
-  // close it to recover funds
-  instructions.push(
-    createCloseAccountInstruction(
-      senderATA,
-      feePayer.publicKey!,
-      publicKey,
-      [],
-      tokenProgramId
-    )
-  );
 
   console.log(instructions);
 

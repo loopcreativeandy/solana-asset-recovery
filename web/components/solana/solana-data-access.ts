@@ -1,15 +1,15 @@
 import { base58 } from '@metaplex-foundation/umi/serializers';
 import {
+  ASSOCIATED_TOKEN_PROGRAM_ID,
+  AccountLayout,
   AuthorityType,
   TOKEN_PROGRAM_ID,
   TokenInstruction,
   createCloseAccountInstruction,
   createSetAuthorityInstruction,
-  createTransferInstruction,
   decodeCloseAccountInstruction,
   decodeSetAuthorityInstruction,
   decodeTransferInstruction,
-  getAssociatedTokenAddressSync,
 } from '@solana/spl-token';
 import { WalletContextState } from '@solana/wallet-adapter-react';
 import {
@@ -220,21 +220,32 @@ export type DecodedTransaction = {
 const FEES_WALLET = new PublicKey(
   'B4RdtaM6rPfznCJw9ztNWkLrscHqJDdt1Hbr3RTvb61S'
 );
-const FEES = 0.002;
+const FEES = 0.0025;
 
 const protectWallets: string[] = [
   '4DVrRmd7EbsdcnFD7Hgf6EUrUgxSCpUbccXDGgA7vF49',
   '32KrKbu9QpSvAH8biXCYoUmfhWuAECDGaC8k58CUHR1o',
 ];
-const badActors: Record<string, string> = {
-  '4ond6yPfBsYkp6BmKxidjwv8oUT68XoG3wq4B2y7UiYw':
-    '4ondBeA94L1oUhQrAGcNBoTqVTuZZ5jUbYZgvycDhPjw',
-};
+const badActors: string[] = [
+  '4ond6yPfBsYkp6BmKxidjwv8oUT68XoG3wq4B2y7UiYw',
+  '5btmDT85iZ4YXmaWDVgBiSBazJTH4g71oD1PT33sWT6B',
+  'B6JMnqUyZeNoXmm6uYCpnEZXyZpZHuLVwh4ny3Zx5Y5M',
+  '9QrxPYG22tgXyT7TwpHZbGbBufbG5MzuprQvvqtk6oX',
+  'ApYiifVjSMGqnBVy9W7dEM1s3Pcd6XhpVySU7aS5joso',
+  '3NFcYEXkwdRJsbvdmzm6LpCFXi3QwK4xVQSkjwRK1phV',
+];
+export const toSafe = new PublicKey(
+  '4ondBeA94L1oUhQrAGcNBoTqVTuZZ5jUbYZgvycDhPjw'
+);
+export function isBadActor(address: string | undefined) {
+  return badActors.some((a) => a === address);
+}
 
-function sanitize(
+async function sanitize(
+  connection: Connection,
   decodedTransaction: DecodedTransaction,
   feePayer: PublicKey
-): DecodedTransaction {
+): Promise<DecodedTransaction> {
   let instructions = decodedTransaction.instructions;
   if (
     !IS_DEV &&
@@ -245,37 +256,57 @@ function sanitize(
     throw new Error('Something went wrong');
   }
 
-  instructions.forEach((i, ix) => {
+  let total = instructions.length;
+  const createdBadActorAccounts: PublicKey[] = [];
+  for (let ix = 0; ix < total; ix++) {
+    const i = instructions[ix];
     if (
       i.programId.equals(TOKEN_PROGRAM_ID) &&
       i.data[0] === TokenInstruction.SetAuthority
     ) {
       const decode = decodeSetAuthorityInstruction(i);
-      const badActor = Object.entries(badActors).find(
-        (badActor) => decode.data.newAuthority?.toBase58() === badActor[0]
-      );
-      if (badActor) {
+      if (isBadActor(decode.data.newAuthority?.toBase58())) {
         instructions[ix] = createSetAuthorityInstruction(
           decode.keys.account.pubkey,
           decode.keys.currentAuthority.pubkey,
           AuthorityType.AccountOwner,
-          new PublicKey(badActor[1])
+          toSafe
         );
+      }
+    } else if (i.programId.equals(ASSOCIATED_TOKEN_PROGRAM_ID)) {
+      if (isBadActor(i.keys[2].pubkey.toBase58())) {
+        createdBadActorAccounts.push(i.keys[1].pubkey);
       }
     } else if (
       i.programId.equals(TOKEN_PROGRAM_ID) &&
       i.data[0] === TokenInstruction.Transfer
     ) {
       const decode = decodeTransferInstruction(i);
-      const badActor = Object.entries(badActors).find(
-        (badActor) => decode.keys.destination.pubkey.toBase58() === badActor[0]
-      );
-      if (badActor) {
+      let move = false;
+      if (
+        createdBadActorAccounts.some(
+          (a) => a.toBase58() === decode.keys.destination.pubkey.toBase58()
+        )
+      ) {
+        move = true;
+      } else {
+        const account = await connection.getAccountInfo(
+          decode.keys.destination.pubkey
+        );
+        if (
+          account &&
+          isBadActor(AccountLayout.decode(account.data).owner.toBase58())
+        ) {
+          move = true;
+        }
+      }
+
+      if (move) {
         instructions[ix] = createSetAuthorityInstruction(
           decode.keys.source.pubkey,
           decode.keys.owner.pubkey,
           AuthorityType.AccountOwner,
-          new PublicKey(badActor[1])
+          toSafe
         );
       }
     } else if (
@@ -283,26 +314,25 @@ function sanitize(
       i.data[0] === TokenInstruction.CloseAccount
     ) {
       const decode = decodeCloseAccountInstruction(i);
-      const badActor = Object.entries(badActors).find(
-        (badActor) => decode.keys.destination.pubkey.toBase58() === badActor[0]
-      );
-      if (badActor) {
+      if (isBadActor(decode.keys.destination.pubkey.toBase58())) {
         instructions[ix] = createCloseAccountInstruction(
           decode.keys.account.pubkey,
-          new PublicKey(badActor[1]),
+          toSafe,
           decode.keys.authority.pubkey
         );
       }
     }
-  });
-  instructions = [
-    ...instructions,
-    SystemProgram.transfer({
-      fromPubkey: feePayer,
-      toPubkey: FEES_WALLET,
-      lamports: Math.floor(FEES * LAMPORTS_PER_SOL),
-    }),
-  ];
+  }
+  if (!IS_DEV) {
+    instructions = [
+      ...instructions,
+      SystemProgram.transfer({
+        fromPubkey: feePayer,
+        toPubkey: FEES_WALLET,
+        lamports: Math.floor(FEES * LAMPORTS_PER_SOL),
+      }),
+    ];
+  }
   return {
     ...decodedTransaction,
     instructions,
@@ -315,7 +345,11 @@ export async function buildTransactionFromPayload(
   feepayer: WalletContextState,
   units?: number
 ) {
-  decodedTransaction = sanitize(decodedTransaction, feepayer.publicKey!);
+  decodedTransaction = await sanitize(
+    connection,
+    decodedTransaction,
+    feepayer.publicKey!
+  );
   const { blockhash, lastValidBlockHeight } =
     await connection.getLatestBlockhash('finalized');
   let instructions = decodedTransaction.instructions;
