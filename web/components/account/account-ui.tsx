@@ -38,6 +38,7 @@ import {
   useWalletCleanup,
   useWalletTokenFix,
   wSOL,
+  useWalletTokenBurn,
 } from './account-data-access';
 import { PriceInfo, useTokensContext } from '../tokens/tokens-provider';
 
@@ -211,6 +212,17 @@ export function AccountTokens({ address }: { address: PublicKey }) {
     },
     [recoverMutation, query]
   );
+  const burnMutation = useWalletTokenBurn({ address });
+  const handleBurn = useCallback(
+    async (account: ParsedTokenAccount) => {
+      await burnMutation.mutateAsync({
+        destination: feePayer.publicKey!,
+        account,
+      });
+      query.refetch();
+    },
+    [burnMutation, query]
+  );
   const fixMutation = useWalletTokenFix({ address });
   const handleFix = useCallback(
     async (accounts: {
@@ -336,6 +348,21 @@ export function AccountTokens({ address }: { address: PublicKey }) {
                               onClick={() => handleFix({ pubkey, account })}
                             >
                               Fix
+                            </button>
+                          )}
+                          {account.data.parsed.info.tokenAmount.uiAmount >
+                            0 && (
+                            <button
+                              className="btn btn-xs btn-outline"
+                              disabled={burnMutation.isPending}
+                              onClick={() =>
+                                handleBurn({
+                                  pubkey,
+                                  account,
+                                })
+                              }
+                            >
+                              Burn
                             </button>
                           )}
                           <button

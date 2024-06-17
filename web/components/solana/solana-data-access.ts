@@ -94,10 +94,12 @@ export async function sendTransaction(
   if (transaction instanceof VersionedTransaction) {
     return await connection.sendTransaction(transaction, {
       maxRetries: 0,
+      skipPreflight: true,
     });
   } else {
     return await connection.sendRawTransaction(transaction.serialize(), {
       maxRetries: 0,
+      skipPreflight: true,
     });
   }
 }
@@ -122,7 +124,7 @@ export async function resendAndConfirmTransaction({
     skipPreflight: true,
   };
   let retries = 0;
-  const getBackoff = (retries: number) => 2000;
+  const getBackoff = (retries: number) => 10000;
 
   const result = { done: false };
   try {
@@ -354,6 +356,7 @@ export async function buildTransactionFromPayload(
     await connection.getLatestBlockhash('finalized');
   let instructions = decodedTransaction.instructions;
 
+  units = Math.floor(units || 500_000);
   if (
     !instructions.some(
       (i) =>
@@ -364,7 +367,7 @@ export async function buildTransactionFromPayload(
   ) {
     instructions = [
       ComputeBudgetProgram.setComputeUnitLimit({
-        units: Math.floor(units || 500_000),
+        units: units,
       }),
       ...instructions,
     ];
@@ -377,7 +380,7 @@ export async function buildTransactionFromPayload(
           'SetComputeUnitPrice'
     )
   ) {
-    const microLamports = await getPriorityFeeEstimate(
+    let microLamports = await getPriorityFeeEstimate(
       connection.rpcEndpoint,
       new VersionedTransaction(
         new TransactionMessage({
@@ -388,6 +391,11 @@ export async function buildTransactionFromPayload(
       ),
       PriorityLevel.High
     );
+    microLamports = Math.max(
+      microLamports,
+      Math.ceil((units * 20_000) / 10 ** 6)
+    );
+    console.info(microLamports);
     instructions = [
       ComputeBudgetProgram.setComputeUnitPrice({
         microLamports: Math.floor(microLamports),

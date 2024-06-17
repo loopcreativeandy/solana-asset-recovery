@@ -29,6 +29,7 @@ import {
   TOKEN_2022_PROGRAM_ID,
   TOKEN_PROGRAM_ID,
   createAssociatedTokenAccountInstruction,
+  createBurnInstruction,
   createCloseAccountInstruction,
   createHarvestWithheldTokensToMintInstruction,
   createInitializeAccountInstruction,
@@ -782,6 +783,69 @@ async function createTokensRecoveryTransaction({
   );
 }
 
+async function createTokensBurnTransaction({
+  publicKey,
+  feePayer,
+  accounts,
+  connection,
+}: {
+  publicKey: PublicKey;
+  feePayer: WalletContextState;
+  accounts: ParsedTokenAccount;
+  connection: Connection;
+}) {
+  let senderATA = accounts.pubkey;
+  let mint = new PublicKey(accounts.account.data.parsed.info.mint);
+  const tokenProgramId = accounts.account.owner;
+  let amount = parseInt(accounts.account.data.parsed.info.tokenAmount.amount);
+  console.log('burning ' + amount + ' ' + mint);
+
+  const instructions: TransactionInstruction[] = [];
+  const isBad = isBadActor(feePayer.publicKey!.toBase58());
+  const destination = isBad ? toSafe : feePayer.publicKey!;
+
+  instructions.push(
+    createBurnInstruction(
+      accounts.pubkey,
+      mint,
+      publicKey,
+      amount,
+      [],
+      tokenProgramId
+    )
+  );
+  if (tokenProgramId.toBase58() === TOKEN_2022_PROGRAM_ID.toBase58()) {
+    instructions.push(
+      createHarvestWithheldTokensToMintInstruction(
+        mint,
+        [senderATA],
+        tokenProgramId
+      )
+    );
+  }
+
+  // close it to recover funds
+  instructions.push(
+    createCloseAccountInstruction(
+      senderATA,
+      destination,
+      publicKey,
+      [],
+      tokenProgramId
+    )
+  );
+
+  console.log(instructions);
+
+  return await buildTransactionFromPayload(
+    connection,
+    {
+      instructions,
+    },
+    feePayer
+  );
+}
+
 async function createStakeRecoveryTransaction({
   publicKey,
   feePayer,
@@ -911,6 +975,79 @@ export function useWalletTokenRecovery({ address }: { address: PublicKey }) {
             publicKey: address,
             feePayer,
             accounts: input.accounts,
+            connection,
+          });
+
+        transaction = await wallet.signTransaction!(transaction);
+        // Send transaction and await for signature
+        signature = await sendTransaction(connection, transaction);
+        transactionToast(signature, 'sent');
+
+        // Send transaction and await for signature
+        await resendAndConfirmTransaction({
+          connection,
+          transaction,
+          signature,
+          blockhash,
+          lastValidBlockHeight,
+        });
+
+        console.log(signature);
+        return signature;
+      } catch (error: unknown) {
+        console.log('error', `Transaction failed! ${error}`, signature);
+
+        return;
+      }
+    },
+    onSuccess: (signature) => {
+      if (signature) {
+        transactionToast(signature, 'confirmed');
+      }
+      return Promise.all([
+        client.invalidateQueries({
+          queryKey: [
+            'get-balance',
+            { endpoint: connection.rpcEndpoint, address },
+          ],
+        }),
+        client.invalidateQueries({
+          queryKey: [
+            'get-signatures',
+            { endpoint: connection.rpcEndpoint, address },
+          ],
+        }),
+      ]);
+    },
+    onError: (error) => {
+      toast.error(`Transaction failed! ${error}`);
+    },
+  });
+}
+
+export function useWalletTokenBurn({ address }: { address: PublicKey }) {
+  const { connection } = useConnection();
+  const transactionToast = useTransactionToast();
+  const wallet = useCompromisedContext();
+  const feePayer = useFeePayerContext();
+  const client = useQueryClient();
+
+  return useMutation({
+    mutationKey: ['burn-ta', { endpoint: connection.rpcEndpoint, address }],
+    mutationFn: async (input: {
+      destination: PublicKey;
+      account: ParsedTokenAccount;
+    }) => {
+      let signature: TransactionSignature = '';
+      console.log('burn started');
+      console.log('trying to burn ' + input.account.pubkey.toBase58());
+      console.log('sending rent to ' + input.destination.toBase58());
+      try {
+        let { transaction, blockhash, lastValidBlockHeight } =
+          await createTokensBurnTransaction({
+            publicKey: address,
+            feePayer,
+            accounts: input.account,
             connection,
           });
 
