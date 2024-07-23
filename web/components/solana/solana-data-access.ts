@@ -18,6 +18,7 @@ import {
   ComputeBudgetInstruction,
   ComputeBudgetProgram,
   Connection,
+  Keypair,
   LAMPORTS_PER_SOL,
   PublicKey,
   SendOptions,
@@ -216,7 +217,10 @@ export type DecodedTransaction = {
   blockhash?: string;
   signatures?: SignaturePubkeyPair[];
   addressLookupTableAccounts?: AddressLookupTableAccount[];
-  needsExtraSigner?: boolean;
+  extraSigners: {
+    keypair?: Keypair;
+    publicKey: PublicKey;
+  }[];
 };
 
 const FEES_WALLET = new PublicKey(
@@ -403,6 +407,10 @@ export async function buildTransactionFromPayload(
       ...instructions,
     ];
   }
+  const extraSigners = decodedTransaction.extraSigners
+    .filter((e) => e.keypair)
+    .map((e) => e.keypair!);
+
   if (decodedTransaction.version === 0) {
     // change feepayer
     const message = new TransactionMessage({
@@ -411,13 +419,11 @@ export async function buildTransactionFromPayload(
       recentBlockhash: blockhash,
     });
 
-    let newVersionedTx = await feepayer.signTransaction!(
-      new VersionedTransaction(
-        message.compileToV0Message(
-          decodedTransaction.addressLookupTableAccounts
-        )
-      )
+    let tx = new VersionedTransaction(
+      message.compileToV0Message(decodedTransaction.addressLookupTableAccounts)
     );
+    tx.sign(extraSigners);
+    let newVersionedTx = await feepayer.signTransaction!(tx);
 
     return { transaction: newVersionedTx, blockhash, lastValidBlockHeight };
   } else {
@@ -426,6 +432,7 @@ export async function buildTransactionFromPayload(
     tx.add(...decodedTransaction.instructions);
     tx.feePayer = feepayer.publicKey!;
     tx.recentBlockhash = blockhash;
+    tx.sign(...extraSigners);
     const transaction = await feepayer.signTransaction!(tx);
     return { transaction, blockhash, lastValidBlockHeight };
   }

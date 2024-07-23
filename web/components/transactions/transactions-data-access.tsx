@@ -23,8 +23,6 @@ import {
   PublicKey,
   SimulatedTransactionAccountInfo,
   SimulatedTransactionResponse,
-  StakeAuthorizationLayout,
-  StakeProgram,
   SystemProgram,
   Transaction,
   TransactionMessage,
@@ -123,9 +121,13 @@ export async function decodeTransactionFromPayload(
       addressLookupTableAccounts: nonNullAtlAccounts,
       blockhash: decompiledMessage.recentBlockhash,
       signatures: [],
-      needsExtraSigner: txSigners.some(
-        (s) => !defaultSigners.some((d) => d.toBase58() === s.toBase58())
-      ),
+      extraSigners: txSigners
+        .filter(
+          (s) => !defaultSigners.some((d) => d.toBase58() === s.toBase58())
+        )
+        .map((key) => ({
+          publicKey: key,
+        })),
     };
   } else {
     console.log('building legacy transaction');
@@ -144,9 +146,13 @@ export async function decodeTransactionFromPayload(
       instructions: tx.instructions,
       blockhash: tx.recentBlockhash!,
       signatures: tx.signatures,
-      needsExtraSigner: txSigners.some(
-        (s) => !defaultSigners.some((d) => d.toBase58() === s.toBase58())
-      ),
+      extraSigners: txSigners
+        .filter(
+          (s) => !defaultSigners.some((d) => d.toBase58() === s.toBase58())
+        )
+        .map((key) => ({
+          publicKey: key,
+        })),
     };
   }
 

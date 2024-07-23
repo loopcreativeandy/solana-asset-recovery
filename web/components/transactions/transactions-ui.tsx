@@ -4,6 +4,7 @@ import { base58 } from '@metaplex-foundation/umi/serializers';
 import { useConnection } from '@solana/wallet-adapter-react';
 import {
   AccountMeta,
+  Keypair,
   PublicKey,
   TransactionInstruction,
 } from '@solana/web3.js';
@@ -38,13 +39,22 @@ enum Routing {
 }
 
 interface InstructionProps {
+  safe: PublicKey | null;
+  compromised: PublicKey | null;
   ix: number;
   i: TransactionInstruction;
   transaction: DecodedTransaction;
   setTransaction: (value: DecodedTransaction) => void;
 }
 
-function Instruction({ ix, i, transaction, setTransaction }: InstructionProps) {
+function Instruction({
+  safe,
+  compromised,
+  ix,
+  i,
+  transaction,
+  setTransaction,
+}: InstructionProps) {
   const onMoveUp = useCallback(
     () =>
       setTransaction({
@@ -98,6 +108,21 @@ function Instruction({ ix, i, transaction, setTransaction }: InstructionProps) {
             : d
         ),
       });
+  const onReplaceSigner = (publicKey: PublicKey) => () => {
+    const keypair = Keypair.generate();
+    setTransaction({
+      ...transaction,
+      instructions: transaction.instructions.map((i) => ({
+        ...i,
+        keys: i.keys.map((s) =>
+          s.pubkey.equals(publicKey) ? { ...s, pubkey: keypair.publicKey } : s
+        ),
+      })),
+      extraSigners: transaction.extraSigners.map((e) =>
+        e.publicKey.equals(publicKey) ? { keypair, publicKey } : e
+      ),
+    });
+  };
   const parsed = useMemo(() => tryDecodeInstruction(i), [i]);
 
   return (
@@ -134,9 +159,10 @@ function Instruction({ ix, i, transaction, setTransaction }: InstructionProps) {
         <b>Accounts: </b>
         {i.keys.length === 0 && <i>No accounts required</i>}
         {i.keys.length > 0 && (
-          <div className="grid grid-cols-[auto_1fr_auto_auto] gap-2">
+          <div className="grid grid-cols-[auto_1fr_auto_auto_auto] gap-2">
             <b>#</b>
             <b>Pubkey</b>
+            <b>🔄</b>
             <b>Signer</b>
             <b>Writable</b>
             {i.keys.map((s, sx) => (
@@ -147,6 +173,13 @@ function Instruction({ ix, i, transaction, setTransaction }: InstructionProps) {
                   value={s.pubkey.toBase58()}
                   onChange={onChangeAccount(sx, 'pubkey')}
                 />
+                {s.isSigner &&
+                s.pubkey.toBase58() !== safe?.toBase58() &&
+                s.pubkey.toBase58() !== compromised?.toBase58() ? (
+                  <button onClick={onReplaceSigner(s.pubkey)}>🔄</button>
+                ) : (
+                  <span />
+                )}
                 <input
                   type="checkbox"
                   checked={s.isSigner}
@@ -196,7 +229,7 @@ export function TransactionUi() {
     blockhash: '',
     instructions: [],
     signatures: [],
-    needsExtraSigner: false,
+    extraSigners: [],
     version: 0,
   });
   const [preview, setPreview] = useState<SimulateResult | undefined>();
@@ -343,6 +376,8 @@ export function TransactionUi() {
             )}
             {decoded.instructions.map((i, ix) => (
               <Instruction
+                compromised={wallet.publicKey}
+                safe={feePayer.publicKey}
                 key={ix}
                 i={i}
                 ix={ix}
@@ -495,7 +530,7 @@ export function TransactionUi() {
           </div>
         )}
 
-        {decoded?.needsExtraSigner && (
+        {decoded?.extraSigners.some((e) => !e.keypair) && (
           <div className="border p-2">
             <h2 className="text-2xl font-bold">Step 5: Routing</h2>
             <div>
