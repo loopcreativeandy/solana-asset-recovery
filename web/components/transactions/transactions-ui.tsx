@@ -118,7 +118,7 @@ function Instruction({
           s.pubkey.equals(publicKey) ? { ...s, pubkey: keypair.publicKey } : s
         ),
       })),
-      extraSigners: transaction.extraSigners.map((e) =>
+      extraSigners: transaction.extraSigners?.map((e) =>
         e.publicKey.equals(publicKey) ? { keypair, publicKey } : e
       ),
     });
@@ -530,7 +530,7 @@ export function TransactionUi() {
           </div>
         )}
 
-        {decoded?.extraSigners.some((e) => !e.keypair) && (
+        {decoded?.extraSigners?.some((e) => !e.keypair) && (
           <div className="border p-2">
             <h2 className="text-2xl font-bold">Step 5: Routing</h2>
             <div>

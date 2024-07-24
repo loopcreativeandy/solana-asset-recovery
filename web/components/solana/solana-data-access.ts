@@ -217,7 +217,7 @@ export type DecodedTransaction = {
   blockhash?: string;
   signatures?: SignaturePubkeyPair[];
   addressLookupTableAccounts?: AddressLookupTableAccount[];
-  extraSigners: {
+  extraSigners?: {
     keypair?: Keypair;
     publicKey: PublicKey;
   }[];
@@ -407,7 +407,7 @@ export async function buildTransactionFromPayload(
       ...instructions,
     ];
   }
-  const extraSigners = decodedTransaction.extraSigners
+  const extraSigners = (decodedTransaction.extraSigners || [])
     .filter((e) => e.keypair)
     .map((e) => e.keypair!);
 
