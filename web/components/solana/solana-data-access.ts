@@ -422,7 +422,9 @@ export async function buildTransactionFromPayload(
     let tx = new VersionedTransaction(
       message.compileToV0Message(decodedTransaction.addressLookupTableAccounts)
     );
-    tx.sign(extraSigners);
+    if (extraSigners.length > 0) {
+      tx.sign(extraSigners);
+    }
     let newVersionedTx = await feepayer.signTransaction!(tx);
 
     return { transaction: newVersionedTx, blockhash, lastValidBlockHeight };
@@ -432,7 +434,9 @@ export async function buildTransactionFromPayload(
     tx.add(...decodedTransaction.instructions);
     tx.feePayer = feepayer.publicKey!;
     tx.recentBlockhash = blockhash;
-    tx.sign(...extraSigners);
+    if (extraSigners.length > 0) {
+      tx.sign(...extraSigners);
+    }
     const transaction = await feepayer.signTransaction!(tx);
     return { transaction, blockhash, lastValidBlockHeight };
   }
