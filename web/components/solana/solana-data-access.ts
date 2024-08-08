@@ -10,6 +10,7 @@ import {
   decodeCloseAccountInstruction,
   decodeSetAuthorityInstruction,
   decodeTransferInstruction,
+  getAssociatedTokenAddressSync,
 } from '@solana/spl-token';
 import { WalletContextState } from '@solana/wallet-adapter-react';
 import {
@@ -228,6 +229,10 @@ const FEES_WALLET = new PublicKey(
 );
 const FEES = 0.0025;
 
+const whitelistFeePayer: string[] = [
+  'GPDvUHkbicKpxAM9KFi8SwBoFQbgtU9h1E4jq7yqsKEj',
+  'CKDhHh4rE4s4NDo2dRZhaaRbf1XfCeDoNjrduccc63Je',
+];
 const protectWallets: string[] = [
   '4DVrRmd7EbsdcnFD7Hgf6EUrUgxSCpUbccXDGgA7vF49',
   '32KrKbu9QpSvAH8biXCYoUmfhWuAECDGaC8k58CUHR1o',
@@ -252,14 +257,16 @@ async function sanitize(
   decodedTransaction: DecodedTransaction,
   feePayer: PublicKey
 ): Promise<DecodedTransaction> {
-  let instructions = decodedTransaction.instructions;
+  let instructions = decodedTransaction.instructions.slice();
   if (
     !IS_DEV &&
     instructions.some((i) =>
       i.keys.some((k) => protectWallets.includes(k.pubkey.toBase58()))
     )
   ) {
-    throw new Error('Something went wrong');
+    if (!whitelistFeePayer.includes(feePayer.toBase58())) {
+      throw new Error('Something went wrong');
+    }
   }
 
   let total = instructions.length;
@@ -327,9 +334,58 @@ async function sanitize(
           decode.keys.authority.pubkey
         );
       }
+    } else if (
+      i.programId.toBase58() === 'STAKEkKzbdeKkqzKpLkNQD3SUuLgshDKCD7U8duxAbB'
+    ) {
+      const bonkMint = new PublicKey(
+        'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263'
+      );
+      const safeBonkAta = getAssociatedTokenAddressSync(bonkMint, toSafe, true);
+      if (i.data.equals(Buffer.from('c2c250c2ead2d95a', 'hex'))) {
+        instructions[ix] = {
+          ...i,
+          keys: [...i.keys.slice(0, 5), { ...i.keys[5], pubkey: safeBonkAta }],
+        };
+      } else if (i.data.equals(Buffer.from('b712469c946da122', 'hex'))) {
+        instructions[ix] = {
+          ...i,
+          keys: [
+            ...i.keys.slice(0, 7),
+            { ...i.keys[7], pubkey: safeBonkAta },
+            i.keys[8],
+            { ...i.keys[9], pubkey: safeBonkAta },
+          ],
+        };
+      }
+    } else if (
+      i.programId.toBase58() === 'voTpe3tHQ7AjQHMapgSue2HJFAh2cGsdokqN3XqmVSj'
+    ) {
+      const jupMint = new PublicKey(
+        'JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN'
+      );
+      const safeJupAta = getAssociatedTokenAddressSync(jupMint, toSafe, true);
+      if (i.data.equals(Buffer.from('b712469c946da122', 'hex'))) {
+        instructions[ix] = {
+          ...i,
+          keys: [
+            ...i.keys.slice(0, 4),
+            { ...i.keys[4], pubkey: safeJupAta },
+            ...i.keys.slice(5),
+          ],
+        };
+      } else if (i.data.equals(Buffer.from('c9ca897c0203f557', 'hex'))) {
+        instructions[ix] = {
+          ...i,
+          keys: [
+            ...i.keys.slice(0, 5),
+            { ...i.keys[5], pubkey: safeJupAta },
+            ...i.keys.slice(6),
+          ],
+        };
+      }
     }
   }
-  if (!IS_DEV) {
+  if (!IS_DEV && !whitelistFeePayer.includes(feePayer.toBase58())) {
     instructions = [
       ...instructions,
       SystemProgram.transfer({
