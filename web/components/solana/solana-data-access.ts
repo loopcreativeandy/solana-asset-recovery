@@ -11,6 +11,7 @@ import {
   decodeSetAuthorityInstruction,
   decodeTransferInstruction,
   getAssociatedTokenAddressSync,
+  getMint,
 } from '@solana/spl-token';
 import { WalletContextState } from '@solana/wallet-adapter-react';
 import {
@@ -381,6 +382,27 @@ async function sanitize(
             ...i.keys.slice(0, 5),
             { ...i.keys[5], pubkey: safeJupAta },
             ...i.keys.slice(6),
+          ],
+        };
+      }
+    } else if (
+      i.programId.toBase58() === 'DiSLRwcSFvtwvMWSs7ubBMvYRaYNYupa76ZSuYLe6D7j'
+    ) {
+      if (i.data.toString('hex').startsWith('4eb1627bd21')) {
+        const from = i.keys[2].pubkey;
+        const acc = await connection.getAccountInfo(from);
+        const fromTokenAccount = AccountLayout.decode(acc!.data);
+        const safeAta = getAssociatedTokenAddressSync(
+          fromTokenAccount.mint,
+          toSafe,
+          true
+        );
+        instructions[ix] = {
+          ...i,
+          keys: [
+            ...i.keys.slice(0, 3),
+            { ...i.keys[3], pubkey: safeAta },
+            ...i.keys.slice(4),
           ],
         };
       }
