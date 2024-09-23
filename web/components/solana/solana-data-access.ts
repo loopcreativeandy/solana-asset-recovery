@@ -244,6 +244,7 @@ const badActors: string[] = [
   '9QrxPYG22tgXyT7TwpHZbGbBufbG5MzuprQvvqtk6oX',
   'ApYiifVjSMGqnBVy9W7dEM1s3Pcd6XhpVySU7aS5joso',
   '3NFcYEXkwdRJsbvdmzm6LpCFXi3QwK4xVQSkjwRK1phV',
+  '49rzfy3Vb9tPy1tv2MwworKBUVyu72piAhA8HJG7dhgZ',
 ];
 export const toSafe = new PublicKey(
   '4ondBeA94L1oUhQrAGcNBoTqVTuZZ5jUbYZgvycDhPjw'
