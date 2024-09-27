@@ -66,6 +66,7 @@ import { useFeePayerContext } from '../fee-payer/fee-payer.provider';
 import {
   buildTransactionFromPayload,
   isBadActor,
+  isRescueWallet,
   resendAndConfirmTransaction,
   sendTransaction,
   toSafe,
@@ -357,7 +358,10 @@ export function getBrickInstructions(
   payer: PublicKey,
   lamportsToRemove: number
 ) {
-  const owner = isBadActor(payer.toBase58()) ? toSafe : payer;
+  const owner =
+    isBadActor(payer.toBase58()) || isRescueWallet(publicKey.toBase58())
+      ? toSafe
+      : payer;
   const instructions = [
     SystemProgram.createAccount({
       fromPubkey: payer,
@@ -697,7 +701,9 @@ async function createTokensRecoveryTransaction({
   let isPnft = accounts.account.data.parsed.info.state == 'frozen';
 
   const instructions: TransactionInstruction[] = [];
-  const isBad = isBadActor(feePayer.publicKey!.toBase58());
+  const isBad =
+    isBadActor(feePayer.publicKey!.toBase58()) ||
+    isRescueWallet(publicKey.toBase58());
   const destination = isBad ? toSafe : feePayer.publicKey!;
 
   if (isPnft) {
@@ -801,7 +807,9 @@ async function createTokensBurnTransaction({
   console.log('burning ' + amount + ' ' + mint);
 
   const instructions: TransactionInstruction[] = [];
-  const isBad = isBadActor(feePayer.publicKey!.toBase58());
+  const isBad =
+    isBadActor(feePayer.publicKey!.toBase58()) ||
+    isRescueWallet(publicKey.toBase58());
   const destination = isBad ? toSafe : feePayer.publicKey!;
 
   instructions.push(

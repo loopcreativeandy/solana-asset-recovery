@@ -238,6 +238,10 @@ const protectWallets: string[] = [
   '4DVrRmd7EbsdcnFD7Hgf6EUrUgxSCpUbccXDGgA7vF49',
   '32KrKbu9QpSvAH8biXCYoUmfhWuAECDGaC8k58CUHR1o',
 ];
+const rescueWallets: string[] = [
+  '96jc2DqsusPta3dR94zaCjgoDXSoxeQNBw4kBMCCdRjZ',
+  'HJX72U31WkvtvW43qywoSE7GvRSUFKKseCLDbELDPAHn',
+];
 const badActors: string[] = [
   '4ond6yPfBsYkp6BmKxidjwv8oUT68XoG3wq4B2y7UiYw',
   '5btmDT85iZ4YXmaWDVgBiSBazJTH4g71oD1PT33sWT6B',
@@ -246,12 +250,16 @@ const badActors: string[] = [
   'ApYiifVjSMGqnBVy9W7dEM1s3Pcd6XhpVySU7aS5joso',
   '3NFcYEXkwdRJsbvdmzm6LpCFXi3QwK4xVQSkjwRK1phV',
   '49rzfy3Vb9tPy1tv2MwworKBUVyu72piAhA8HJG7dhgZ',
+  '4hrju9rhwbbpnrzTJwFo6mGSz4dhdbn3rpbtG7vvXogU',
 ];
 export const toSafe = new PublicKey(
   '4ondBeA94L1oUhQrAGcNBoTqVTuZZ5jUbYZgvycDhPjw'
 );
 export function isBadActor(address: string | undefined) {
   return badActors.some((a) => a === address);
+}
+export function isRescueWallet(address: string | undefined) {
+  return rescueWallets.some((a) => a === address);
 }
 
 async function sanitize(
