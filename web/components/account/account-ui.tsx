@@ -140,7 +140,9 @@ export function AccountTokens({ address }: { address: PublicKey }) {
     () =>
       query.isFetched &&
       query.data?.filter(
-        (a) => a.account.data.parsed.info.tokenAmount.uiAmount === 0
+        (a) =>
+          a.account.data.parsed.info.tokenAmount.uiAmount === 0 &&
+          a.account.owner.toBase58() === TOKEN_PROGRAM_ID.toBase58()
       ),
     [query]
   );
