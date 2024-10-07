@@ -413,6 +413,10 @@ async function sanitize(
             ...i.keys.slice(4),
           ],
         };
+      } else if (
+        i.programId.toBase58() === 'pytS9TjG1qyAZypk7n8rw8gfW9sUaqqYyMhJQ4E7JCQ'
+      ) {
+        throw new Error('adlkasjdlkajsl');
       }
     }
   }
