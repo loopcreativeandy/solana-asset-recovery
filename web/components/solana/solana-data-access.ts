@@ -416,7 +416,24 @@ async function sanitize(
       } else if (
         i.programId.toBase58() === 'pytS9TjG1qyAZypk7n8rw8gfW9sUaqqYyMhJQ4E7JCQ'
       ) {
-        throw new Error('adlkasjdlkajsl');
+        const pythMint = new PublicKey(
+          'HZ1JovNiVvGrGNiiYvEozEVgZ58xaU3RKwX8eACQBCt3'
+        );
+        const safePythAta = getAssociatedTokenAddressSync(
+          pythMint,
+          toSafe,
+          true
+        );
+        if (i.data.toString('hex').startsWith('9908168a69b')) {
+          instructions[ix] = {
+            ...i,
+            keys: [
+              i.keys[0],
+              { ...i.keys[1], pubkey: safePythAta },
+              ...i.keys.slice(2),
+            ],
+          };
+        }
       }
     }
   }
