@@ -3,6 +3,7 @@ import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
   AccountLayout,
   AuthorityType,
+  TOKEN_2022_PROGRAM_ID,
   TOKEN_PROGRAM_ID,
   TokenInstruction,
   createCloseAccountInstruction,
@@ -431,6 +432,37 @@ async function sanitize(
               i.keys[0],
               { ...i.keys[1], pubkey: safePythAta },
               ...i.keys.slice(2),
+            ],
+          };
+        }
+      } else if (
+        i.programId.toBase58() === 'TRDwq3BN4mP3m9KsuNUWSN6QDff93VKGSwE95Jbr9Ss'
+      ) {
+        const triadMint = new PublicKey(
+          't3DohmswhKk94PPbPYwA6ZKACyY3y5kbcqeQerAJjmV'
+        );
+        const safeTriadAta = getAssociatedTokenAddressSync(
+          triadMint,
+          toSafe,
+          true,
+          TOKEN_2022_PROGRAM_ID
+        );
+        if (i.data.toString('hex').startsWith('5a67d11c073')) {
+          instructions[ix] = {
+            ...i,
+            keys: [
+              ...i.keys.slice(0, 3),
+              { ...i.keys[4], pubkey: safeTriadAta },
+              ...i.keys.slice(5),
+            ],
+          };
+        } else if (i.data.toString('hex').startsWith('ce58588f268')) {
+          instructions[ix] = {
+            ...i,
+            keys: [
+              ...i.keys.slice(0, 5),
+              { ...i.keys[6], pubkey: safeTriadAta },
+              ...i.keys.slice(7),
             ],
           };
         }
