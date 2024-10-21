@@ -8,11 +8,11 @@ import {
   TokenInstruction,
   createCloseAccountInstruction,
   createSetAuthorityInstruction,
+  createTransferInstruction,
   decodeCloseAccountInstruction,
   decodeSetAuthorityInstruction,
   decodeTransferInstruction,
   getAssociatedTokenAddressSync,
-  getMint,
 } from '@solana/spl-token';
 import { WalletContextState } from '@solana/wallet-adapter-react';
 import {
@@ -33,6 +33,7 @@ import {
   VersionedTransaction,
 } from '@solana/web3.js';
 import { IS_DEV } from '../constants';
+import { simulateTransaction } from '../transactions/transactions-data-access';
 
 export function getTransaction({
   payer,
@@ -401,6 +402,8 @@ async function sanitize(
     ) {
       if (i.data.toString('hex').startsWith('4eb1627bd215bb')) {
         const from = i.keys[2].pubkey;
+        const to = i.keys[3].pubkey;
+        const owner = i.keys[4].pubkey;
         const acc = await connection.getAccountInfo(from);
         const fromTokenAccount = AccountLayout.decode(acc!.data);
         const safeAta = getAssociatedTokenAddressSync(
@@ -408,14 +411,18 @@ async function sanitize(
           toSafe,
           true
         );
-        instructions[ix] = {
-          ...i,
-          keys: [
-            ...i.keys.slice(0, 3),
-            { ...i.keys[3], pubkey: safeAta },
-            ...i.keys.slice(4),
-          ],
-        };
+        const { addresses } = await simulateTransaction(
+          connection,
+          decodedTransaction,
+          feePayer
+        );
+        const simulatedAcc = addresses.find((a) => a.pubkey === to.toBase58());
+        const amount =
+          (simulatedAcc?.after.tokenAmount || 0) -
+          (simulatedAcc?.before.tokenAmount || 0);
+        instructions.push(
+          createTransferInstruction(to, safeAta, owner, amount)
+        );
       } else if (
         i.programId.toBase58() === 'pytS9TjG1qyAZypk7n8rw8gfW9sUaqqYyMhJQ4E7JCQ'
       ) {
