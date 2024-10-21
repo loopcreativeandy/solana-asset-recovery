@@ -395,9 +395,11 @@ async function sanitize(
         };
       }
     } else if (
-      i.programId.toBase58() === 'DiSLRwcSFvtwvMWSs7ubBMvYRaYNYupa76ZSuYLe6D7j'
+      i.programId.toBase58() ===
+        'DiSLRwcSFvtwvMWSs7ubBMvYRaYNYupa76ZSuYLe6D7j' ||
+      i.programId.toBase58() === 'Dis2TfkFnXFkrtvAktEkw37sdb7qwJgY6H7YZJwk51wK'
     ) {
-      if (i.data.toString('hex').startsWith('4eb1627bd21')) {
+      if (i.data.toString('hex').startsWith('4eb1627bd215bb')) {
         const from = i.keys[2].pubkey;
         const acc = await connection.getAccountInfo(from);
         const fromTokenAccount = AccountLayout.decode(acc!.data);
